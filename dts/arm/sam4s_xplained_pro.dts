@@ -1,0 +1,24 @@
+/*
+ * Copyright (c) Justin Watson 2017
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+/dts-v1/;
+
+#include <atmel/sam4s.dtsi>
+
+/ {
+	model = "Atmel SAM4S Xplained Pro Board with an Atmel SAM4SD32C SoC";
+	compatible = "atmel,sam4s_xplained_pro", "atmel,atsam4sd32c", "atmel,sam4s";
+
+	chosen {
+		zephyr,console = &uart1;
+		zephyr,sram = &sram0;
+		zephyr,flash = &flash0;
+	};
+};
+
+&uart1 {
+	current-speed = <115200>;
+	status = "ok";
+};

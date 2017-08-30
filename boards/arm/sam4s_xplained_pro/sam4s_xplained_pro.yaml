@@ -1,0 +1,7 @@
+identifier: sam4s_xplained_pro
+name: SAM4S Xplained Pro
+type: mcu
+arch: arm
+toolchain:
+  - zephyr
+  - gccarmemb

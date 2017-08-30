@@ -11,6 +11,9 @@ choice
 
 	config SOC_ATSAM4S16C
 		bool "ATSAM4S16C"
+
+	config SOC_ATSAM4SD32C
+		bool "ATSAM4SD32C"
 endchoice
 
 if SOC_SERIES_SAM4S

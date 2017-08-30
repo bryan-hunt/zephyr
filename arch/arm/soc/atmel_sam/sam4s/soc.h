@@ -21,6 +21,8 @@
 
 #if defined(CONFIG_SOC_ATSAM4S16C)
 	#include <sam4s16c.h>
+#elif defined(CONFIG_SOC_ATSAM4SD32C)
+	#include <sam4sd32c.h>
 #else
 	#error Library does not support the specified device.
 #endif
