@@ -19,7 +19,7 @@
 #define DONT_USE_PREDEFINED_CORE_HANDLERS
 #define DONT_USE_PREDEFINED_PERIPHERALS_HANDLERS
 
-#if defined(CONFIG_SOC_PART_NUMBER_SAM4S16C)
+#if defined(CONFIG_SOC_ATSAM4S16C)
 	#include <sam4s16c.h>
 #else
 	#error Library does not support the specified device.

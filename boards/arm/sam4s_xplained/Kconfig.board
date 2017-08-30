@@ -6,4 +6,4 @@
 
 config BOARD_SAM4S_XPLAINED
 	bool "Atmel SAM4S Xplained"
-	depends on SOC_PART_NUMBER_SAM4S16C
+	depends on SOC_ATSAM4S16C

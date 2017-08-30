@@ -9,7 +9,7 @@
 
 / {
 	model = "Atmel SAM4S Xplained Board with an Atmel SAM4S16C SoC";
-	compatible = "atmel,sam4s_xplained", "atmel,sam4s16c", "atmel,sam4s";
+	compatible = "atmel,sam4s_xplained", "atmel,atsam4s16c", "atmel,sam4s";
 
 	chosen {
 		zephyr,console = &uart1;
