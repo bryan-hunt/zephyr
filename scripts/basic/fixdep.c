@@ -177,6 +177,26 @@ static void print_config(const char *m, int slen)
 	printf(".h) \\\n");
 }
 
+static void fix_path(char* s)
+{
+#if defined(__MINGW32__) || defined(__CYGWIN__)
+	char* p = s;
+	if (p) {
+		/* DOS Like filename */
+		if (':' == p[1]) {
+			p[1] = p[0];
+			p[0] = '/';
+		}
+		/* Replace slashes */
+		while (*p++) {
+			if ('\\' == *p) {
+				*p = '/';
+			}
+		}
+	}
+#endif
+}
+
 static void do_extra_deps(void)
 {
 	if (insert_extra_deps) {
@@ -409,6 +429,9 @@ static void parse_dep_file(void *map, size_t len)
 			/* Save this token/filename */
 			memcpy(s, m, p-m);
 			s[p - m] = 0;
+
+			/* Make sure paths are correct for the platform */
+			fix_path(s);
 
 			/* Ignore certain dependencies */
 			if ((m < end) &&
