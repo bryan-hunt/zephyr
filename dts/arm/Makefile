@@ -42,6 +42,7 @@ dtb-$(CONFIG_BOARD_SAM_E70_XPLAINED)	=	sam_e70_xplained.dts_compiled
 dtb-$(CONFIG_BOARD_ARDUINO_DUE)		=	arduino_due.dts_compiled
 dtb-$(CONFIG_BOARD_SAM4S_XPLAINED)	=	sam4s_xplained.dts_compiled
 dtb-$(CONFIG_BOARD_SAM4S_XPLAINED_PRO)	=	sam4s_xplained_pro.dts_compiled
+dtb-$(CONFIG_BOARD_SAMG55_XPLAINED_PRO)	=	samg55_xplained_pro.dts_compiled
 dtb-$(CONFIG_BOARD_OLIMEX_STM32_E407)	=	olimex_stm32_e407.dts_compiled
 dtb-$(CONFIG_BOARD_CC2650_SENSORTAG)	= 	cc2650_sensortag.dts_compiled
 dtb-$(CONFIG_BOARD_STM32_MIN_DEV)	=	stm32_min_dev.dts_compiled

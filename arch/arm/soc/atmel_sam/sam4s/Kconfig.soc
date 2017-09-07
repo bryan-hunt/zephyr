@@ -9,10 +9,10 @@ choice
 	prompt "Atmel SAM4S MCU Selection"
 	depends on SOC_SERIES_SAM4S
 
-	config SOC_ATSAM4S16C
+	config SOC_PART_NUMBER_ATSAM4S16C
 		bool "ATSAM4S16C"
 
-	config SOC_ATSAM4SD32C
+	config SOC_PART_NUMBER_ATSAM4SD32C
 		bool "ATSAM4SD32C"
 endchoice
 

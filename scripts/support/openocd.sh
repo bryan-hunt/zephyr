@@ -25,6 +25,15 @@ test_bin() {
         echo "Error: Unable to locate image binary: ${BIN_NAME}"
         exit 1
     fi
+	echo ${OPENOCD_LOAD_CMD}
+	echo ${OPENOCD_VERIFY_CMD}
+	
+	#OPENOCD_LOAD_CMD=$(sed 's|/c/|c:/|' <<< ${OPENOCD_LOAD_CMD} | sed 's|/|\\|g')
+	OPENOCD_LOAD_CMD=$(sed 's|/c/|c:/|' <<< ${OPENOCD_LOAD_CMD})
+	#OPENOCD_VERIFY_CMD=$(sed 's|/c/|c:/|' <<< ${OPENOCD_VERIFY_CMD} | sed 's|/|\\|g')
+	OPENOCD_VERIFY_CMD=$(sed 's|/c/|c:/|' <<< ${OPENOCD_VERIFY_CMD})
+	echo ${OPENOCD_LOAD_CMD}
+	echo ${OPENOCD_VERIFY_CMD}
 }
 
 do_flash() {

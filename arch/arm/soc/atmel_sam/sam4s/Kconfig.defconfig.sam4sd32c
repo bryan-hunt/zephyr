@@ -5,7 +5,7 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
-if SOC_ATSAM4SD32C
+if SOC_PART_NUMBER_ATSAM4SD32C
 
 config SOC
 	string

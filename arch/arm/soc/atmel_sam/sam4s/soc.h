@@ -19,15 +19,15 @@
 #define DONT_USE_PREDEFINED_CORE_HANDLERS
 #define DONT_USE_PREDEFINED_PERIPHERALS_HANDLERS
 
-#if defined(CONFIG_SOC_ATSAM4S16C)
+#if defined(CONFIG_SOC_PART_NUMBER_ATSAM4S16C)
 	#include <sam4s16c.h>
-#elif defined(CONFIG_SOC_ATSAM4SD32C)
+#elif defined(CONFIG_SOC_PART_NUMBER_ATSAM4SD32C)
 	#include <sam4sd32c.h>
 #else
 	#error Library does not support the specified device.
 #endif
 
-#include "soc_pinmap.h"
+#include "pinmux.h"
 
 #include "../common/soc_pmc.h"
 #include "../common/soc_gpio.h"

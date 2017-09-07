@@ -1,0 +1,24 @@
+/*
+ * Copyright (c) 2017 Microchip Technology Inc
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+/dts-v1/;
+
+#include <atmel/samg5x.dtsi>
+
+/ {
+	model = "Atmel SAMG55 Xplained Pro Board with a Microchip ATSAMG55 SoC";
+	compatible = "atmel,samg55_xplained_pro", "atmel,atsamg55";
+
+	chosen {
+		zephyr,console = &usart1;
+		zephyr,sram = &sram0;
+		zephyr,flash = &flash0;
+	};
+};
+
+&usart1 {
+	current-speed = <115200>;
+	status = "ok";
+};

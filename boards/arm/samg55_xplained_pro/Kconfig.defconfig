@@ -1,0 +1,13 @@
+# Kconfig - Atmel SAMG55 Xplained pRO Board configuration
+#
+# Copyright (c) 2017 Microchip Technology Inc
+# SPDX-License-Identifier: Apache-2.0
+#
+
+if BOARD_SAMG55_XPLAINED_PRO
+
+config BOARD
+	string
+	default samg55_xplained_pro
+
+endif # BOARD_SAMG55_XPLAINED_PRO

@@ -9,5 +9,5 @@ if BOARD_SAM4S_XPLAINED_PRO
 config BOARD
 	string
 	default sam4s_xplained_pro
-
+	
 endif # BOARD_SAM4S_XPLAINED_PRO

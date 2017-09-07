@@ -1,0 +1,7 @@
+identifier: samg55_xplained_pro
+name: SAMG55 Xplained Pro
+type: mcu
+arch: arm
+toolchain:
+  - zephyr
+  - gccarmemb

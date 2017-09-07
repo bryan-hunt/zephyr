@@ -1,0 +1,61 @@
+# Kconfig - Atmel SAM4S Xplained Board selection
+#
+# Copyright (c) 2017 Microchip Technology Inc
+# SPDX-License-Identifier: Apache-2.0
+#
+
+choice
+	optional
+	prompt "Expansion Header 1 (EXT1)"
+	config CRYPTOAUTH_EXT1
+		bool "ATCRYPTOAUTH-XPRO"
+	config WINC1500_EXT1
+		bool "ATWINC1500-XPRO"
+		select WIFI_WINC1500
+	config ETHERNET_EXT1
+		bool "ATETHERNET1-XPRO"
+endchoice
+
+choice
+	optional
+	prompt "Expansion Header 2 (EXT2)"
+	config CRYPTOAUTH_EXT2
+		bool "ATCRYPTOAUTH-XPRO"
+	config ETHERNET_EXT2
+		bool "ATETHERNET1-XPRO"
+	config WINC1500_EXT2
+		bool "ATWINC1500-XPRO"
+		select WIFI_WINC1500
+endchoice
+
+choice
+	optional
+	prompt "Expansion Header 3 (EXT3)"
+	config CRYPTOAUTH_EXT3
+		bool "ATCRYPTOAUTH-XPRO"
+	config ETHERNET_EXT3
+		bool "ATETHERNET1-XPRO"
+	config OLED1_EXT3
+		bool "ATOLED1-XPRO"
+	config WINC1500_EXT3
+		bool "ATWINC1500-XPRO"
+		select WIFI_WINC1500
+endchoice
+
+# In reality we should be able to support multiple boards and multiple
+# devices but that adds quite a bit of complexity here right now
+
+if CRYPTOAUTH_EXT1 || CRYPTOAUTH_EXT2 || CRYPTOAUTH_EXT3
+	config CRYPTOAUTH_ATAES132A
+		bool "ATAES132A"
+		select CRYPTO_ATAES132A 
+		help
+			Depends on I2C & CRYPTO
+	config CRYPTOAUTH_ATECC508A
+		bool "ATECC508A"
+		select CRYPTO_ATECC508A
+	config CRYPTOAUTH_ATSHA204A
+		bool "ATSHA204A"
+		select CRYPTO_ATSHA204A
+endif
+

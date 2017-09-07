@@ -164,59 +164,75 @@ static const struct uart_driver_api usart_sam_driver_api = {
 	.poll_out = usart_sam_poll_out,
 };
 
+
+#define USART_X_CONFIG_STRUCT(x)	usart ## x ## _sam_config
+#define USART_X_DATA(x)				usart ## x ## _sam_data
+#define USART_REGISTER(x)			USART ## x
+#define USART_PERIPH_ID(x)			ID_USART ## x
+#define USART_RX_PIN(x)				PIN_USART ## x ## _RXD
+#define USART_TX_PIN(x)				PIN_USART ## x ## _TXD
+
+#define USART_CONFIG(x)															\
+static const struct usart_sam_dev_cfg USART_X_CONFIG_STRUCT(x) = {				\
+	.regs = USART_REGISTER(x),													\
+	.periph_id = USART_PERIPH_ID(x),											\
+	.pin_rx = USART_RX_PIN(x),													\
+	.pin_tx = USART_TX_PIN(x)													\
+};																				\
+static struct usart_sam_dev_data USART_X_DATA(x) = {							\
+	.baud_rate = CONFIG_USART_SAM_PORT_ ## x ## _BAUD_RATE						\
+};																				\
+DEVICE_AND_API_INIT(usart ## x ## _sam, CONFIG_USART_SAM_PORT_ ## x ## _NAME, 	\
+	&usart_sam_init, &USART_X_DATA(x), &USART_X_CONFIG_STRUCT(x), 				\
+	PRE_KERNEL_1, CONFIG_KERNEL_INIT_PRIORITY_DEVICE, &usart_sam_driver_api);	\
+
+
+
+/*
+#define USART_CONFIG(x)															\
+static const struct usart_sam_dev_cfg usart ## x ## _sam_config = {				\
+	.regs = USART ## x,															\
+	.periph_id = ID_USART ## x,													\
+	.pin_rx = PIN_USART ## x ## _RXD,											\
+	.pin_tx = PIN_USART ## x ## _TXD											\
+};																				\
+static struct usart_sam_dev_data usart ## x ## _sam_data = {					\
+	.baud_rate = CONFIG_USART_SAM_PORT_ ## x ## _BAUD_RATE						\
+};																				\
+DEVICE_AND_API_INIT(usart ## x ## _sam, CONFIG_USART_SAM_PORT_ ## x ## _NAME, 	\
+	&usart_sam_init, &usart ## x ## _sam_data, &usart ## x ## _sam_config, 		\
+	PRE_KERNEL_1, CONFIG_KERNEL_INIT_PRIORITY_DEVICE, &usart_sam_driver_api);	\
+*/
+
 /* USART0 */
-
-#ifdef CONFIG_USART_SAM_PORT_0
-static const struct usart_sam_dev_cfg usart0_sam_config = {
-	.regs = USART0,
-	.periph_id = ID_USART0,
-	.pin_rx = PIN_USART0_RXD,
-	.pin_tx = PIN_USART0_TXD,
-};
-
-static struct usart_sam_dev_data usart0_sam_data = {
-	.baud_rate = CONFIG_USART_SAM_PORT_0_BAUD_RATE,
-};
-
-DEVICE_AND_API_INIT(usart0_sam, CONFIG_USART_SAM_PORT_0_NAME, &usart_sam_init,
-		    &usart0_sam_data, &usart0_sam_config, PRE_KERNEL_1,
-		    CONFIG_KERNEL_INIT_PRIORITY_DEVICE, &usart_sam_driver_api);
+#if CONFIG_USART_SAM_PORT_0
+#if CONFIG_USART_SAM_PORT_0_BAUD_RATE < 2400
+#error "CONFIG_USART_SAM_PORT_0_BAUD_RATE has to be bigger than 0"
+#endif
+USART_CONFIG(0)
 #endif
 
 /* USART1 */
-
-#ifdef CONFIG_USART_SAM_PORT_1
-static const struct usart_sam_dev_cfg usart1_sam_config = {
-	.regs = USART1,
-	.periph_id = ID_USART1,
-	.pin_rx = PIN_USART1_RXD,
-	.pin_tx = PIN_USART1_TXD,
-};
-
-static struct usart_sam_dev_data usart1_sam_data = {
-	.baud_rate = CONFIG_USART_SAM_PORT_1_BAUD_RATE,
-};
-
-DEVICE_AND_API_INIT(usart1_sam, CONFIG_USART_SAM_PORT_1_NAME, &usart_sam_init,
-		    &usart1_sam_data, &usart1_sam_config, PRE_KERNEL_1,
-		    CONFIG_KERNEL_INIT_PRIORITY_DEVICE, &usart_sam_driver_api);
+#if CONFIG_USART_SAM_PORT_1
+#if CONFIG_USART_SAM_PORT_1_BAUD_RATE < 2400
+#error "CONFIG_USART_SAM_PORT_1_BAUD_RATE has to be bigger than 0"
+#endif
+USART_CONFIG(1)
 #endif
 
 /* USART2 */
-
-#ifdef CONFIG_USART_SAM_PORT_2
-static const struct usart_sam_dev_cfg usart2_sam_config = {
-	.regs = USART2,
-	.periph_id = ID_USART2,
-	.pin_rx = PIN_USART2_RXD,
-	.pin_tx = PIN_USART2_TXD,
-};
-
-static struct usart_sam_dev_data usart2_sam_data = {
-	.baud_rate = CONFIG_USART_SAM_PORT_2_BAUD_RATE,
-};
-
-DEVICE_AND_API_INIT(usart2_sam, CONFIG_USART_SAM_PORT_2_NAME, &usart_sam_init,
-		    &usart2_sam_data, &usart2_sam_config, PRE_KERNEL_1,
-		    CONFIG_KERNEL_INIT_PRIORITY_DEVICE, &usart_sam_driver_api);
+#if CONFIG_USART_SAM_PORT_2
+#if CONFIG_USART_SAM_PORT_2_BAUD_RATE < 2400
+#error "CONFIG_USART_SAM_PORT_2_BAUD_RATE has to be bigger than 0"
 #endif
+USART_CONFIG(2)
+#endif
+
+/* USART3 */
+#if CONFIG_USART_SAM_PORT_3
+#if CONFIG_USART_SAM_PORT_3_BAUD_RATE < 2400
+#error "CONFIG_USART_SAM_PORT_3_BAUD_RATE has to be bigger than 0"
+#endif
+USART_CONFIG(3)
+#endif
+

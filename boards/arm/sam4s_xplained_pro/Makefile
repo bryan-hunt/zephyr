@@ -4,5 +4,4 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
-# No C files (yet)
-obj- += dummy.o
+obj-y += board.o
