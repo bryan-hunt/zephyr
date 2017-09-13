@@ -263,10 +263,8 @@ static void tx_packet_set(struct connection *conn,
 static void prepare_pdu_data_tx(struct connection *conn,
 				struct pdu_data **pdu_data_tx);
 static void packet_rx_allocate(u8_t max);
-
-static u8_t packet_rx_acquired_count_get(void);
-
-static struct radio_pdu_node_rx *packet_rx_reserve_get(u8_t count);
+static inline u8_t packet_rx_acquired_count_get(void);
+static inline struct radio_pdu_node_rx *packet_rx_reserve_get(u8_t count);
 static void packet_rx_enqueue(void);
 static void packet_tx_enqueue(u8_t max);
 static struct pdu_data *empty_tx_enqueue(struct connection *conn);
@@ -447,6 +445,11 @@ u32_t radio_init(void *hf_clock, u8_t sca, u8_t connection_count_max,
 #endif /* RADIO_UNIT_TEST && CONFIG_BT_CTLR_CHAN_SEL_2 */
 
 	return retcode;
+}
+
+struct device *radio_hf_clock_get(void)
+{
+	return _radio.hf_clock;
 }
 
 void ll_reset(void)
@@ -867,6 +870,9 @@ static inline u32_t isr_rx_adv(u8_t devmatch_ok, u8_t devmatch_id,
 		radio_pkt_tx_set(&_radio.advertiser.scan_data.
 		     data[_radio.advertiser.scan_data.first][0]);
 
+		/* assert if radio packet ptr is not set and radio started tx */
+		LL_ASSERT(!radio_is_ready());
+
 		return 0;
 	} else if ((pdu_adv->type == PDU_ADV_TYPE_CONNECT_IND) &&
 		   (pdu_adv->len == sizeof(struct pdu_adv_payload_connect_ind)) &&
@@ -1270,7 +1276,7 @@ static inline u32_t isr_rx_scan(u8_t devmatch_ok, u8_t devmatch_id,
 	if ((_radio.scanner.conn) && ((_radio.fc_ena == 0) ||
 				      (_radio.fc_req == _radio.fc_ack)) &&
 	    isr_scan_init_check(pdu_adv_rx, rl_idx) &&
-	    ((radio_tmr_end_get() + 502) <
+	    ((radio_tmr_end_get() + 502 + (RADIO_TICKER_JITTER_US << 1)) <
 	     (TICKER_TICKS_TO_US(_radio.scanner.hdr.ticks_slot) -
 	      RADIO_TICKER_START_PART_US))) {
 		struct radio_le_conn_cmplt *radio_le_conn_cmplt;
@@ -1598,6 +1604,9 @@ static inline u32_t isr_rx_scan(u8_t devmatch_ok, u8_t devmatch_id,
 		radio_pkt_tx_set(pdu_adv_tx);
 		radio_tmr_end_capture();
 
+		/* assert if radio packet ptr is not set and radio started tx */
+		LL_ASSERT(!radio_is_ready());
+
 		return 0;
 	}
 	/* Passive scanner or scan responses */
@@ -1797,15 +1806,12 @@ isr_rx_conn_pkt_release(struct radio_pdu_node_tx *node_tx)
 	/* release */
 	if (conn->pkt_tx_head == conn->pkt_tx_ctrl) {
 		if (node_tx) {
+			conn->pkt_tx_head = conn->pkt_tx_head->next;
 			if (conn->pkt_tx_ctrl == conn->pkt_tx_ctrl_last) {
-				conn->pkt_tx_ctrl_last =
-					conn->pkt_tx_ctrl_last->next;
-			}
-			conn->pkt_tx_ctrl = conn->pkt_tx_ctrl->next;
-			conn->pkt_tx_head = conn->pkt_tx_ctrl;
-			if (conn->pkt_tx_ctrl == conn->pkt_tx_data) {
 				conn->pkt_tx_ctrl = NULL;
 				conn->pkt_tx_ctrl_last = NULL;
+			} else {
+				conn->pkt_tx_ctrl = conn->pkt_tx_head;
 			}
 
 			mem_release(node_tx, &_radio. pkt_tx_ctrl_free);
@@ -2792,16 +2798,7 @@ isr_rx_conn_pkt_ctrl(struct radio_pdu_node_rx *radio_pdu_node_rx,
 #endif /* CONFIG_BT_CTLR_LE_PING */
 
 	case PDU_DATA_LLCTRL_TYPE_UNKNOWN_RSP:
-		if (_radio.conn_curr->llcp_req != _radio.conn_curr->llcp_ack) {
-			/* reset ctrl procedure */
-			_radio.conn_curr->llcp_ack = _radio.conn_curr->llcp_req;
-
-			switch (_radio.conn_curr->llcp_type) {
-			default:
-				LL_ASSERT(0);
-				break;
-			}
-
+		if (0) {
 #if defined(CONFIG_BT_CTLR_DATA_LENGTH)
 		} else if (_radio.conn_curr->llcp_length.req !=
 			   _radio.conn_curr->llcp_length.ack) {
@@ -3071,7 +3068,7 @@ isr_rx_conn_pkt(struct radio_pdu_node_rx *radio_pdu_node_rx,
 
 		if (_radio.conn_curr->empty == 0) {
 			struct radio_pdu_node_tx *node_tx;
-			u8_t pdu_data_tx_len, pdu_data_tx_ll_id;
+			u8_t pdu_data_tx_len;
 
 			node_tx = _radio.conn_curr->pkt_tx_head;
 			pdu_data_tx = (struct pdu_data *)
@@ -3079,8 +3076,6 @@ isr_rx_conn_pkt(struct radio_pdu_node_rx *radio_pdu_node_rx,
 				 _radio.conn_curr->packet_tx_head_offset);
 
 			pdu_data_tx_len = pdu_data_tx->len;
-			pdu_data_tx_ll_id = pdu_data_tx->ll_id;
-
 			if (pdu_data_tx_len != 0) {
 				/* if encrypted increment tx counter */
 				if (_radio.conn_curr->enc_tx) {
@@ -3088,7 +3083,7 @@ isr_rx_conn_pkt(struct radio_pdu_node_rx *radio_pdu_node_rx,
 				}
 
 				/* process ctrl packet on tx cmplt */
-				if (pdu_data_tx_ll_id == PDU_DATA_LLID_CTRL) {
+				if (pdu_data_tx->ll_id == PDU_DATA_LLID_CTRL) {
 					terminate =
 						isr_rx_conn_pkt_ack(pdu_data_tx,
 								    &node_tx);
@@ -3250,29 +3245,6 @@ static inline void isr_rx_conn(u8_t crc_ok, u8_t trx_done,
 	u8_t chg = 0;
 #endif /* CONFIG_BT_CTLR_PROFILE_ISR */
 
-#if defined(CONFIG_BT_CTLR_CONN_RSSI)
-	/* Collect RSSI for connection */
-	if (_radio.packet_counter == 0) {
-		if (rssi_ready) {
-			u8_t rssi = radio_rssi_get();
-
-			_radio.conn_curr->rssi_latest = rssi;
-
-			if (((_radio.conn_curr->rssi_reported - rssi) & 0xFF) >
-			    RADIO_RSSI_THRESHOLD) {
-				if (_radio.conn_curr->rssi_sample_count) {
-					_radio.conn_curr->rssi_sample_count--;
-				}
-			} else {
-				_radio.conn_curr->rssi_sample_count =
-					RADIO_RSSI_SAMPLE_COUNT;
-			}
-		}
-	}
-#else /* !CONFIG_BT_CTLR_CONN_RSSI */
-	ARG_UNUSED(rssi_ready);
-#endif /* !CONFIG_BT_CTLR_CONN_RSSI */
-
 	/* Increment packet counter for this connection event */
 	_radio.packet_counter++;
 
@@ -3384,6 +3356,9 @@ static inline void isr_rx_conn(u8_t crc_ok, u8_t trx_done,
 	/* setup the radio tx packet buffer */
 	tx_packet_set(_radio.conn_curr, pdu_data_tx);
 
+	/* assert if radio packet ptr is not set and radio started tx */
+	LL_ASSERT(!radio_is_ready());
+
 isr_rx_conn_exit:
 
 #if defined(CONFIG_BT_CTLR_PROFILE_ISR)
@@ -3396,6 +3371,13 @@ isr_rx_conn_exit:
 	radio_tmr_sample();
 
 #endif /* CONFIG_BT_CTLR_PROFILE_ISR */
+
+	/* NOTE: Check for connection termination and skip accessing connection
+	 * context.
+	 */
+	if (!_radio.conn_curr) {
+		goto isr_rx_conn_terminate_exit;
+	}
 
 	/* release tx node and generate event for num complete */
 	if (tx_release) {
@@ -3411,6 +3393,29 @@ isr_rx_conn_exit:
 		radio_pdu_node_rx->hdr.handle = _radio.conn_curr->handle;
 		packet_rx_enqueue();
 	}
+
+#if defined(CONFIG_BT_CTLR_CONN_RSSI)
+	/* Collect RSSI for connection */
+	if (rssi_ready) {
+		u8_t rssi = radio_rssi_get();
+
+		_radio.conn_curr->rssi_latest = rssi;
+
+		if (((_radio.conn_curr->rssi_reported - rssi) & 0xFF) >
+		    RADIO_RSSI_THRESHOLD) {
+			if (_radio.conn_curr->rssi_sample_count) {
+				_radio.conn_curr->rssi_sample_count--;
+			}
+		} else {
+			_radio.conn_curr->rssi_sample_count =
+				RADIO_RSSI_SAMPLE_COUNT;
+		}
+	}
+#else /* !CONFIG_BT_CTLR_CONN_RSSI */
+	ARG_UNUSED(rssi_ready);
+#endif /* !CONFIG_BT_CTLR_CONN_RSSI */
+
+isr_rx_conn_terminate_exit:
 
 #if defined(CONFIG_BT_CTLR_PROFILE_ISR)
 	/* calculate the elapsed time in us since on-air radio packet end
@@ -5613,7 +5618,9 @@ static void adv_setup(void)
 #else
 	ARG_UNUSED(upd);
 #endif /* !CONFIG_BT_CTLR_PRIVACY */
+
 	radio_pkt_tx_set(pdu);
+
 	if ((pdu->type != PDU_ADV_TYPE_NONCONN_IND) &&
 	    (!IS_ENABLED(CONFIG_BT_CTLR_ADV_EXT) ||
 	     (pdu->type != PDU_ADV_TYPE_EXT_IND))) {
@@ -5722,31 +5729,11 @@ static void event_adv(u32_t ticks_at_expire, u32_t remainder,
 	DEBUG_RADIO_START_A(0);
 }
 
-void event_adv_stop(u32_t ticks_at_expire, u32_t remainder, u16_t lazy,
-		    void *context)
+static void mayfly_adv_stop(void *param)
 {
 	struct radio_le_conn_cmplt *radio_le_conn_cmplt;
 	struct radio_pdu_node_rx *radio_pdu_node_rx;
 	struct pdu_data *pdu_data_rx;
-	u32_t ticker_status;
-
-	ARG_UNUSED(ticks_at_expire);
-	ARG_UNUSED(remainder);
-	ARG_UNUSED(lazy);
-	ARG_UNUSED(context);
-
-	/* Abort an event, if any, to avoid Rx queue corruption used by Radio
-	 * ISR.
-	 */
-	event_stop(0, 0, 0, (void *)STATE_ABORT);
-
-	/* Stop Direct Adv */
-	ticker_status =
-	    ticker_stop(RADIO_TICKER_INSTANCE_ID_RADIO,
-			RADIO_TICKER_USER_ID_WORKER, RADIO_TICKER_ID_ADV,
-			ticker_success_assert, (void *)__LINE__);
-	LL_ASSERT((ticker_status == TICKER_STATUS_SUCCESS) ||
-		  (ticker_status == TICKER_STATUS_BUSY));
 
 	/* Prepare the rx packet structure */
 	radio_pdu_node_rx = packet_rx_reserve_get(1);
@@ -5765,6 +5752,186 @@ void event_adv_stop(u32_t ticks_at_expire, u32_t remainder, u16_t lazy,
 
 	/* enqueue connection complete structure into queue */
 	packet_rx_enqueue();
+}
+
+static inline void ticker_stop_adv_stop_active(void)
+{
+	static void *s_link[2];
+	static struct mayfly s_mfy_radio_inactive = {0, 0, s_link, NULL,
+		mayfly_radio_inactive};
+	u32_t volatile ret_cb = TICKER_STATUS_BUSY;
+	u32_t ret;
+
+	/* Step 2: Is caller before Event? Stop Event */
+	ret = ticker_stop(RADIO_TICKER_INSTANCE_ID_RADIO,
+			  RADIO_TICKER_USER_ID_JOB, RADIO_TICKER_ID_EVENT,
+			  ticker_if_done, (void *)&ret_cb);
+
+	if (ret == TICKER_STATUS_BUSY) {
+		mayfly_enable(RADIO_TICKER_USER_ID_JOB,
+			      RADIO_TICKER_USER_ID_JOB, 1);
+
+		while (ret_cb == TICKER_STATUS_BUSY) {
+			ticker_job_sched(RADIO_TICKER_INSTANCE_ID_RADIO,
+					 RADIO_TICKER_USER_ID_JOB);
+		}
+	}
+
+	if (ret_cb == TICKER_STATUS_SUCCESS) {
+		static void *s_link[2];
+		static struct mayfly s_mfy_xtal_stop = {0, 0, s_link, NULL,
+			mayfly_xtal_stop};
+		u32_t volatile ret_cb = TICKER_STATUS_BUSY;
+		u32_t ret;
+
+		/* Reset the stored ticker id in prepare phase. */
+		LL_ASSERT(_radio.ticker_id_prepare);
+		_radio.ticker_id_prepare = 0;
+
+		/* Step 2.1: Is caller between Primary and Marker0?
+		 * Stop the Marker0 event
+		 */
+		ret = ticker_stop(RADIO_TICKER_INSTANCE_ID_RADIO,
+				  RADIO_TICKER_USER_ID_JOB,
+				  RADIO_TICKER_ID_MARKER_0,
+				  ticker_if_done, (void *)&ret_cb);
+
+		if (ret == TICKER_STATUS_BUSY) {
+			mayfly_enable(RADIO_TICKER_USER_ID_JOB,
+				      RADIO_TICKER_USER_ID_JOB, 1);
+
+			while (ret_cb == TICKER_STATUS_BUSY) {
+				ticker_job_sched(RADIO_TICKER_INSTANCE_ID_RADIO,
+						 RADIO_TICKER_USER_ID_JOB);
+			}
+		}
+
+		if (ret_cb == TICKER_STATUS_SUCCESS) {
+			/* Step 2.1.1: Check and deassert Radio Active or XTAL
+			 * start
+			 */
+			if (_radio.advertiser.hdr.ticks_active_to_start >
+			    (_radio.advertiser.hdr.ticks_xtal_to_start &
+			     ~BIT(31))) {
+				u32_t retval;
+
+				/* radio active asserted, handle deasserting
+				 * here
+				 */
+				retval = mayfly_enqueue(
+						RADIO_TICKER_USER_ID_JOB,
+						RADIO_TICKER_USER_ID_WORKER, 0,
+						&s_mfy_radio_inactive);
+				LL_ASSERT(!retval);
+			} else {
+				u32_t retval;
+
+				/* XTAL started, handle XTAL stop here */
+				retval = mayfly_enqueue(
+						RADIO_TICKER_USER_ID_JOB,
+						RADIO_TICKER_USER_ID_WORKER, 0,
+						&s_mfy_xtal_stop);
+				LL_ASSERT(!retval);
+			}
+		} else if (ret_cb == TICKER_STATUS_FAILURE) {
+			u32_t retval;
+
+			/* Step 2.1.2: Deassert Radio Active and XTAL start */
+
+			/* radio active asserted, handle deasserting here */
+			retval = mayfly_enqueue(RADIO_TICKER_USER_ID_JOB,
+						RADIO_TICKER_USER_ID_WORKER, 0,
+						&s_mfy_radio_inactive);
+			LL_ASSERT(!retval);
+
+			/* XTAL started, handle XTAL stop here */
+			retval = mayfly_enqueue(RADIO_TICKER_USER_ID_JOB,
+						RADIO_TICKER_USER_ID_WORKER, 0,
+						&s_mfy_xtal_stop);
+			LL_ASSERT(!retval);
+		} else {
+			LL_ASSERT(0);
+		}
+	} else if (ret_cb == TICKER_STATUS_FAILURE) {
+		/* Step 3: Caller inside Event, handle graceful stop of Event
+		 * (role dependent)
+		 */
+		if (_radio.role != ROLE_NONE) {
+			static void *s_link[2];
+			static struct mayfly s_mfy_radio_stop = {0, 0, s_link,
+				NULL, mayfly_radio_stop};
+			u32_t retval;
+
+			/* Radio state STOP is supplied in params */
+			s_mfy_radio_stop.param = (void *)STATE_STOP;
+
+			/* Stop Radio Tx/Rx */
+			retval = mayfly_enqueue(RADIO_TICKER_USER_ID_JOB,
+						RADIO_TICKER_USER_ID_WORKER, 0,
+						&s_mfy_radio_stop);
+			LL_ASSERT(!retval);
+
+			/* NOTE: Cannot wait here for the event to finish
+			 * as we need to let radio ISR to execute if we are in
+			 * the same priority.
+			 */
+		}
+	} else {
+		LL_ASSERT(0);
+	}
+}
+
+static void ticker_stop_adv_stop(u32_t status, void *params)
+{
+	static void *s_link[2];
+	static struct mayfly s_mfy_adv_stop = {0, 0, s_link, NULL,
+					       mayfly_adv_stop};
+	u32_t retval;
+
+	ARG_UNUSED(params);
+
+	/* Ignore if being stopped from app/thread prio */
+	if (status != TICKER_STATUS_SUCCESS) {
+		LL_ASSERT(_radio.ticker_id_stop == RADIO_TICKER_ID_ADV);
+
+		return;
+	}
+
+	/* Handle adv stop inside a prepare and/or event */
+	if ((_radio.ticker_id_prepare == RADIO_TICKER_ID_ADV) ||
+	    (_radio.ticker_id_event == RADIO_TICKER_ID_ADV)) {
+		ticker_stop_adv_stop_active();
+	}
+
+	/* Generate the connection complete event in WORKER Prio */
+	retval = mayfly_enqueue(RADIO_TICKER_USER_ID_JOB,
+				RADIO_TICKER_USER_ID_WORKER, 0,
+				&s_mfy_adv_stop);
+	LL_ASSERT(!retval);
+}
+
+void event_adv_stop(u32_t ticks_at_expire, u32_t remainder, u16_t lazy,
+		    void *context)
+{
+	u32_t ticker_status;
+
+	ARG_UNUSED(ticks_at_expire);
+	ARG_UNUSED(remainder);
+	ARG_UNUSED(lazy);
+	ARG_UNUSED(context);
+
+	/* Abort an event, if any, to avoid Rx queue corruption used by Radio
+	 * ISR.
+	 */
+	event_stop(0, 0, 0, (void *)STATE_ABORT);
+
+	/* Stop Direct Adv */
+	ticker_status =
+	    ticker_stop(RADIO_TICKER_INSTANCE_ID_RADIO,
+			RADIO_TICKER_USER_ID_WORKER, RADIO_TICKER_ID_ADV,
+			ticker_stop_adv_stop, (void *)__LINE__);
+	LL_ASSERT((ticker_status == TICKER_STATUS_SUCCESS) ||
+		  (ticker_status == TICKER_STATUS_BUSY));
 }
 
 static void event_scan_prepare(u32_t ticks_at_expire, u32_t remainder,
@@ -8054,7 +8221,7 @@ static void packet_rx_allocate(u8_t max)
 	}
 }
 
-static u8_t packet_rx_acquired_count_get(void)
+static inline u8_t packet_rx_acquired_count_get(void)
 {
 	if (_radio.packet_rx_acquire >=
 	    _radio.packet_rx_last) {
@@ -8067,18 +8234,13 @@ static u8_t packet_rx_acquired_count_get(void)
 	}
 }
 
-static struct radio_pdu_node_rx *packet_rx_reserve_get(u8_t count)
+static inline struct radio_pdu_node_rx *packet_rx_reserve_get(u8_t count)
 {
-	struct radio_pdu_node_rx *radio_pdu_node_rx;
-
 	if (count > packet_rx_acquired_count_get()) {
 		return 0;
 	}
 
-	radio_pdu_node_rx = _radio.packet_rx[_radio.packet_rx_last];
-	radio_pdu_node_rx->hdr.type = NODE_RX_TYPE_DC_PDU;
-
-	return radio_pdu_node_rx;
+	return _radio.packet_rx[_radio.packet_rx_last];
 }
 
 static void packet_rx_callback(void)
@@ -8997,6 +9159,9 @@ static inline void role_active_disable(u8_t ticker_id_stop,
 		}
 
 		if (ret_cb == TICKER_STATUS_SUCCESS) {
+			/* If in reduced prepare, use the absolute value */
+			ticks_xtal_to_start &= ~BIT(31);
+
 			/* Step 2.1.1: Check and deassert Radio Active or XTAL
 			 * start
 			 */

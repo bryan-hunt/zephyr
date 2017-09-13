@@ -43,6 +43,10 @@
 #include "rpl.h"
 #endif
 
+#if defined(CONFIG_NET_ARP)
+#include <net/arp.h>
+#endif
+
 #include "net_shell.h"
 #include "net_stats.h"
 
@@ -133,7 +137,7 @@ static const char *iface2str(struct net_if *iface, const char **extra)
 	}
 #endif
 
-#ifdef CONFIG_NET_L2_OFFLOAD
+#ifdef CONFIG_NET_OFFLOAD
 	if (iface->l2 == &NET_L2_GET_NAME(OFFLOAD_IP)) {
 		if (extra) {
 			*extra = "==========";
@@ -827,6 +831,34 @@ int net_shell_cmd_allocs(int argc, char *argv[])
 
 #if defined(CONFIG_NET_DEBUG_APP) && \
 	(defined(CONFIG_NET_APP_SERVER) || defined(CONFIG_NET_APP_CLIENT))
+
+#if defined(CONFIG_NET_APP_TLS) || defined(CONFIG_NET_APP_DTLS)
+static void print_app_sec_info(struct net_app_ctx *ctx, const char *sec_type)
+{
+	printk("     Security: %s  Thread id: %p\n", sec_type, ctx->tls.tid);
+
+#if defined(CONFIG_INIT_STACKS)
+	{
+		unsigned int pcnt, unused;
+
+		net_analyze_stack_get_values(
+			K_THREAD_STACK_BUFFER(ctx->tls.stack),
+			ctx->tls.stack_size,
+			&pcnt, &unused);
+		printk("     Stack: %p  Size: %d bytes unused %u usage "
+		       "%u/%d (%u %%)\n",
+		       ctx->tls.stack, ctx->tls.stack_size,
+		       unused, ctx->tls.stack_size - unused,
+		       ctx->tls.stack_size, pcnt);
+	}
+#endif /* CONFIG_INIT_STACKS */
+
+	if (ctx->tls.cert_host) {
+		printk("     Cert host: %s\n", ctx->tls.cert_host);
+	}
+}
+#endif /* CONFIG_NET_APP_TLS || CONFIG_NET_APP_DTLS */
+
 static void net_app_cb(struct net_app_ctx *ctx, void *user_data)
 {
 	int *count = user_data;
@@ -858,10 +890,14 @@ static void net_app_cb(struct net_app_ctx *ctx, void *user_data)
 	}
 
 	if (IS_ENABLED(CONFIG_NET_APP_TLS) && ctx->is_tls) {
+		if (ctx->sock_type == SOCK_STREAM) {
+			sec_type = "TLS";
+		}
+	}
+
+	if (IS_ENABLED(CONFIG_NET_APP_DTLS) && ctx->is_tls) {
 		if (ctx->sock_type == SOCK_DGRAM) {
 			sec_type = "DTLS";
-		} else {
-			sec_type = "TLS";
 		}
 	}
 
@@ -891,28 +927,11 @@ static void net_app_cb(struct net_app_ctx *ctx, void *user_data)
 	       *count, ctx, ctx->is_enabled ? "enabled" : "disabled",
 	       app_type, proto);
 
-#if defined(CONFIG_NET_APP_TLS)
-	printk("     Security: %s  Thread id: %p\n", sec_type, ctx->tls.tid);
-
-#if defined(CONFIG_INIT_STACKS)
-	{
-		unsigned int pcnt, unused;
-
-		net_analyze_stack_get_values(
-			K_THREAD_STACK_BUFFER(ctx->tls.stack),
-			ctx->tls.stack_size,
-			&pcnt, &unused);
-		printk("     Stack: %p  Size: %d bytes unused %u usage "
-		       "%u/%d (%u %%)\n",
-		       ctx->tls.stack, ctx->tls.stack_size,
-		       unused, ctx->tls.stack_size - unused,
-		       ctx->tls.stack_size, pcnt);
+#if defined(CONFIG_NET_APP_TLS) || defined(CONFIG_NET_APP_DTLS)
+	if (ctx->is_tls) {
+		print_app_sec_info(ctx, sec_type);
 	}
-#endif /* CONFIG_INIT_STACKS */
-	if (ctx->tls.cert_host) {
-		printk("     Cert host: %s\n", ctx->tls.cert_host);
-	}
-#endif /* CONFIG_NET_APP_TLS */
+#endif /* CONFIG_NET_APP_TLS || CONFIG_NET_APP_DTLS */
 
 #if defined(CONFIG_NET_IPV6)
 	if (ctx->app_type == NET_APP_SERVER) {
@@ -1036,6 +1055,43 @@ int net_shell_cmd_app(int argc, char *argv[])
 	return 0;
 }
 
+#if defined(CONFIG_NET_ARP)
+static void arp_cb(struct arp_entry *entry, void *user_data)
+{
+	int *count = user_data;
+
+	if (*count == 0) {
+		printk("     Interface  Link              Address\n");
+	}
+
+	printk("[%2d] %p %s %s\n", *count, entry->iface,
+	       net_sprint_ll_addr(entry->eth.addr,
+				  sizeof(struct net_eth_addr)),
+	       net_sprint_ipv4_addr(&entry->ip));
+
+	(*count)++;
+}
+#endif /* CONFIG_NET_ARP */
+
+int net_shell_cmd_arp(int argc, char *argv[])
+{
+	ARG_UNUSED(argc);
+	ARG_UNUSED(argv);
+
+#if defined(CONFIG_NET_ARP)
+	int count = 0;
+
+	if (net_arp_foreach(arp_cb, &count) == 0) {
+		printk("ARP cache is empty.\n");
+	}
+#else
+	printk("Enable CONFIG_NET_ARP, CONFIG_NET_IPV4 and "
+	       "CONFIG_NET_L2_ETHERNET to see ARP information.\n");
+#endif
+
+	return 0;
+}
+
 int net_shell_cmd_conn(int argc, char *argv[])
 {
 	int count = 0;
@@ -1066,8 +1122,8 @@ int net_shell_cmd_conn(int argc, char *argv[])
 #endif
 
 #if defined(CONFIG_NET_TCP)
-	printk("\nTCP        Src port  Dst port   Send-Seq   Send-Ack  MSS    "
-	       "State\n");
+	printk("\nTCP        Src port  Dst port   Send-Seq   Send-Ack  MSS"
+	       "%s\n", IS_ENABLED(CONFIG_NET_DEBUG_TCP) ? "    State" : "");
 
 	count = 0;
 
@@ -2327,6 +2383,8 @@ static struct shell_cmd net_commands[] = {
 		"\n\tPrint network memory allocations" },
 	{ "app", net_shell_cmd_app,
 		"\n\tPrint network application API usage information" },
+	{ "arp", net_shell_cmd_arp,
+		"\n\tPrint information about IPv4 ARP cache" },
 	{ "conn", net_shell_cmd_conn,
 		"\n\tPrint information about network connections" },
 	{ "dns", net_shell_cmd_dns, "\n\tShow how DNS is configure\n"

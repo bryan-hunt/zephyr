@@ -30,6 +30,13 @@ endchoice
 
 comment "BLE Controller configuration"
 
+config BT_CTLR_HCI_VS_EXT
+	bool "Zephyr HCI Vendor-Specific Extensions"
+	default y
+	help
+	  Enable support for the Zephyr HCI Vendor-Specific Extensions in the
+	  Controller.
+
 config BT_CTLR_DUP_FILTER_LEN
 	prompt "Number of addresses in the scan duplicate filter"
 	int
@@ -127,6 +134,7 @@ config BT_CTLR_LE_PING
 
 config BT_CTLR_PRIVACY
 	bool "LE Controller-based Privacy"
+	depends on !SOC_SERIES_NRF51X
 	default y
 	select BT_RPA
 	help
@@ -152,7 +160,7 @@ config BT_CTLR_EXT_SCAN_FP
 
 config BT_CTLR_DATA_LENGTH
 	bool "Data Length Update"
-	default y
+	default y if SOC_SERIES_NRF52X
 	help
 	  Enable support for Bluetooth v4.2 LE Data Length Update procedure in
 	  the Controller.
@@ -169,7 +177,7 @@ config BT_CTLR_DATA_LENGTH_MAX
 
 config BT_CTLR_PHY
 	bool "PHY Update"
-	default y
+	default y if SOC_SERIES_NRF52X
 	help
 	  Enable support for Bluetooth 5.0 PHY Update Procedure in the
 	  Controller.
@@ -198,6 +206,17 @@ config BT_CTLR_ADV_EXT
 	help
 	  Enable support for Bluetooth 5.0 LE Advertising Extensions in the
 	  Controller.
+
+config BT_CTLR_DTM
+	bool
+	help
+	  Enable support for Direct Test Mode in the Controller.
+
+config BT_CTLR_DTM_HCI
+	bool "Direct Test Mode over HCI"
+	select BT_CTLR_DTM
+	help
+	  Enable support for Direct Test Mode over the HCI transport.
 
 config BT_CTLR_ADVANCED_FEATURES
 	bool "Show advanced features"

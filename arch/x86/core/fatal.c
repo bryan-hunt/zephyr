@@ -64,10 +64,6 @@ FUNC_NORETURN void _NanoFatalErrorHandler(unsigned int reason,
 		printk("*****\n");
 		break;
 	}
-	case _NANO_ERR_INVALID_TASK_EXIT:
-		printk("***** Invalid Exit Software Error! *****\n");
-		break;
-
 #if defined(CONFIG_STACK_CANARIES) || defined(CONFIG_STACK_SENTINEL) || \
 		defined(CONFIG_X86_STACK_PROTECTION)
 	case _NANO_ERR_STACK_CHK_FAIL:
@@ -157,7 +153,12 @@ const NANO_ESF _default_esf = {
 static FUNC_NORETURN void generic_exc_handle(unsigned int vector,
 					     const NANO_ESF *pEsf)
 {
-	printk("***** CPU exception %d\n", vector);
+	printk("***** ");
+	if (vector == 13) {
+		printk("General Protection Fault\n");
+	} else {
+		printk("CPU exception %d\n", vector);
+	}
 	if ((1 << vector) & _EXC_ERROR_CODE_FAULTS) {
 		printk("***** Exception code: 0x%x\n", pEsf->errorCode);
 	}
@@ -283,8 +284,6 @@ struct task_state_segment _df_tss = {
 	.cs = CODE_SEG,
 	.ds = DATA_SEG,
 	.es = DATA_SEG,
-	.fs = DATA_SEG,
-	.gs = DATA_SEG,
 	.ss = DATA_SEG,
 	.eip = (u32_t)_df_handler_top,
 	.cr3 = (u32_t)X86_MMU_PD
@@ -340,8 +339,6 @@ static FUNC_NORETURN __used void _df_handler_top(void)
 	_main_tss.cs = CODE_SEG;
 	_main_tss.ds = DATA_SEG;
 	_main_tss.es = DATA_SEG;
-	_main_tss.fs = DATA_SEG;
-	_main_tss.gs = DATA_SEG;
 	_main_tss.ss = DATA_SEG;
 	_main_tss.eip = (u32_t)_df_handler_bottom;
 	_main_tss.cr3 = (u32_t)X86_MMU_PD;

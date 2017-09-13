@@ -354,6 +354,7 @@ config NUM_PIPE_ASYNC_MSGS
 
 	Setting this option to 0 disables support for asynchronous
 	pipe messages.
+
 endmenu
 
 menu "Memory Pool Options"
