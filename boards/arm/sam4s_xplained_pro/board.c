@@ -17,7 +17,7 @@ struct device **winc1500_configure_gpios(void)
 {
 	struct device *gpio;
 	const int flags_noint_out = GPIO_DIR_OUT;
-/*
+
 	gpio = device_get_binding(CONFIG_WINC1500_GPIO_1_NAME);
 
 	gpio_pin_configure(gpio, CONFIG_WINC1500_GPIO_RESET_N, flags_noint_out);
@@ -30,13 +30,13 @@ struct device **winc1500_configure_gpios(void)
 
 	gpio_pin_configure(gpio, CONFIG_WINC1500_GPIO_WAKE, flags_noint_out);
 	winc1500_gpio_config[WINC1500_GPIO_IDX_WAKE] = gpio;
-*/
+
 	return winc1500_gpio_config;
 }
 
 void winc1500_configure_intgpios(void)
 {
-/*	struct device *gpio;
+	struct device *gpio;
 
 	const int flags_int_in = (GPIO_DIR_IN | GPIO_INT |
 				  GPIO_INT_ACTIVE_LOW | GPIO_INT_DEBOUNCE |
@@ -46,6 +46,6 @@ void winc1500_configure_intgpios(void)
 
 	gpio_pin_configure(gpio, CONFIG_WINC1500_GPIO_IRQN, flags_int_in);
 	winc1500_gpio_config[WINC1500_GPIO_IDX_IRQN] = gpio;
-*/
+
 }
 #endif /* CONFIG_WIFI_WINC1500 */

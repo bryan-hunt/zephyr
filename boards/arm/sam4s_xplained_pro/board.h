@@ -10,6 +10,10 @@
 
 #ifndef __ASSEMBLER__
 
+#define LED0_GPIO_PORT	"GPIOC"
+#define LED0_GPIO_PIN	23
+
+
 #if defined(CONFIG_WIFI_WINC1500)
 
 /* GPIO numbers where the WINC1500 module is connected to */

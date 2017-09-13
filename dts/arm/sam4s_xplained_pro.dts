@@ -22,3 +22,15 @@
 	current-speed = <115200>;
 	status = "ok";
 };
+
+&gpioa {
+	status = "ok";
+};
+
+&gpiob {
+	status = "ok";
+};
+
+&gpioc {
+	status = "ok";
+};

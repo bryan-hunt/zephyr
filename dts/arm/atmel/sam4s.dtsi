@@ -48,7 +48,45 @@
 			status = "disabled";
 		};
 
-		uart0: uart@400E0600 {
+		gpioa: gpio@A {
+			compatible = "atmel,sam-gpio";
+			reg = <0x400E0E00 0x200>;
+			interrupts = <11 2>;
+			gpio-controller;
+			#gpio-cells = <2>;
+			status = "disabled";
+			label = "GPIOA";
+		};
+
+		gpiob: gpio@B {
+			compatible = "atmel,sam-gpio";
+			reg = <0x400E1000 0x200>;
+			interrupts = <12 2>;
+			gpio-controller;
+			#gpio-cells = <2>;
+			status = "disabled";
+			label = "GPIOB";
+		};
+
+		gpioc: gpio@C {
+			compatible = "atmel,sam-gpio";
+			reg = <0x400E1200 0x200>;
+			interrupts = <13 2>;
+			gpio-controller;
+			#gpio-cells = <2>;
+			status = "disabled";
+			label = "GPIOC";
+		};
+		
+		spi0: spi@0 {
+			compatible = "atmel,sam-spi";
+			reg = <0x40008000 0x100>;
+			interrupts = <21 0>;
+			//clocks = <&sim 0x103C 12>;
+			status = "disabled";
+		};
+	
+		uart0: uart@0 {
 			compatible = "atmel,sam-uart";
 			reg = <0x400E0600 0x200>;
 			interrupts = <8 0>;
@@ -56,7 +94,7 @@
 			label = "UART_0";
 		};
 
-		uart1: uart@400E0800 {
+		uart1: uart@1 {
 			compatible = "atmel,sam-uart";
 			reg = <0x400E0800 0x200>;
 			interrupts = <9 0>;
@@ -64,7 +102,7 @@
 			label = "UART_1";
 		};
 
-		usart0: usart@40024000 {
+		usart0: usart@0 {
 			compatible = "atmel,sam-usart";
 			reg = <0x40024000 0x130>;
 			interrupts = <14 0>;
@@ -72,7 +110,7 @@
 			label = "USART_0";
 		};
 
-		usart1: usart@40028000 {
+		usart1: usart@1 {
 			compatible = "atmel,sam-usart";
 			reg = <0x40028000 0x130>;
 			interrupts = <15 0>;

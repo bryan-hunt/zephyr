@@ -18,49 +18,6 @@
 #include <soc.h>
 #include <uart.h>
 
-/*
- * Verify Kconfig configuration
- */
-
-#if CONFIG_UART_SAM_PORT_0 == 1
-
-#if CONFIG_UART_SAM_PORT_0_BAUD_RATE == 0
-#error "CONFIG_UART_SAM_PORT_0_BAUD_RATE has to be bigger than 0"
-#endif
-
-#endif
-
-#if CONFIG_UART_SAM_PORT_1 == 1
-
-#if CONFIG_UART_SAM_PORT_1_BAUD_RATE == 0
-#error "CONFIG_UART_SAM_PORT_1_BAUD_RATE has to be bigger than 0"
-#endif
-
-#endif
-
-#if CONFIG_UART_SAM_PORT_2 == 1
-
-#if CONFIG_UART_SAM_PORT_2_BAUD_RATE == 0
-#error "CONFIG_UART_SAM_PORT_2_BAUD_RATE has to be bigger than 0"
-#endif
-
-#endif
-
-#if CONFIG_UART_SAM_PORT_3 == 1
-
-#if CONFIG_UART_SAM_PORT_3_BAUD_RATE == 0
-#error "CONFIG_UART_SAM_PORT_3_BAUD_RATE has to be bigger than 0"
-#endif
-
-#endif
-
-#if CONFIG_UART_SAM_PORT_4 == 1
-
-#if CONFIG_UART_SAM_PORT_4_BAUD_RATE == 0
-#error "CONFIG_UART_SAM_PORT_4_BAUD_RATE has to be bigger than 0"
-#endif
-
-#endif
 
 /* Device constant configuration parameters */
 struct uart_sam_dev_cfg {
@@ -178,139 +135,37 @@ static const struct uart_driver_api uart_sam_driver_api = {
 	.poll_out = uart_sam_poll_out,
 };
 
-#define DRIVER_X_CONFIG_STRUCT(x)	uart ## x ## _sam_config
-#define DRIVER_X_DATA(x)			uart ## x ## _sam_data
-#define DRIVER_REGISTER(x)			UART ## x
-#define DRIVER_PERIPH_ID(x)			ID_UART ## x
-#define DRIVER_RX_PIN(x)			PIN_UART ## x ## _RXD
-#define DRIVER_TX_PIN(x)			PIN_UART ## x ## _TXD
-
-#define DRIVER_CONFIG(x)														\
-static const struct uart_sam_dev_cfg DRIVER_X_CONFIG_STRUCT(x) = {				\
-	.regs = DRIVER_REGISTER(x),													\
-	.periph_id = DRIVER_PERIPH_ID(x),											\
-	.pin_rx = DRIVER_RX_PIN(x),													\
-	.pin_tx = DRIVER_TX_PIN(x)													\
+#define UART_SAM_DRIVER_INIT(_id_)														\
+static const struct uart_sam_dev_cfg uart##_id_##_sam_config = {				\
+	.regs = (void*)ATMEL_SAM_UART_##_id_##_BASE_ADDRESS_0,						\
+	.periph_id = ID_UART##_id_,													\
+	.pin_rx = PIN_UART##_id_##_RXD,												\
+	.pin_tx = PIN_UART##_id_##_TXD												\
 };																				\
-static struct uart_sam_dev_data DRIVER_X_DATA(x) = {							\
-	.baud_rate = CONFIG_UART_SAM_PORT_ ## x ## _BAUD_RATE						\
+static struct uart_sam_dev_data uart##_id_##_sam_data = {						\
+	.baud_rate = ATMEL_SAM_UART_##_id_##_CURRENT_SPEED							\
 };																				\
-DEVICE_AND_API_INIT(uart ## x ## _sam, CONFIG_UART_SAM_PORT_ ## x ## _NAME, 	\
-	&uart_sam_init, &DRIVER_X_DATA(x), &DRIVER_X_CONFIG_STRUCT(x), 				\
+DEVICE_AND_API_INIT(uart##_id_##_sam, ATMEL_SAM_UART_##_id_##_LABEL, 			\
+	&uart_sam_init, &uart##_id_##_sam_data, &uart##_id_##_sam_config, 			\
 	PRE_KERNEL_1, CONFIG_KERNEL_INIT_PRIORITY_DEVICE, &uart_sam_driver_api);
 
 #ifdef CONFIG_UART_SAM_PORT_0
-DRIVER_CONFIG(0)
+UART_SAM_DRIVER_INIT(0)
 #endif
 
 #ifdef CONFIG_UART_SAM_PORT_1
-DRIVER_CONFIG(1)
+UART_SAM_DRIVER_INIT(1)
 #endif
 
 #ifdef CONFIG_UART_SAM_PORT_2
-DRIVER_CONFIG(2)
+UART_SAM_DRIVER_INIT(2)
 #endif
 
 #ifdef CONFIG_UART_SAM_PORT_3
-DRIVER_CONFIG(3)
+UART_SAM_DRIVER_INIT(3)
 #endif
 
 #ifdef CONFIG_UART_SAM_PORT_4
-DRIVER_CONFIG(4)
+UART_SAM_DRIVER_INIT(4)
 #endif
 
-
-// /* UART0 */
-
-// #ifdef CONFIG_UART_SAM_PORT_0
-// static const struct uart_sam_dev_cfg uart0_sam_config = {
-	// .regs = UART0,
-	// .periph_id = ID_UART0,
-	// .pin_rx = PIN_UART0_RXD,
-	// .pin_tx = PIN_UART0_TXD,
-// };
-
-// static struct uart_sam_dev_data uart0_sam_data = {
-	// .baud_rate = CONFIG_UART_SAM_PORT_0_BAUD_RATE,
-// };
-
-// DEVICE_AND_API_INIT(uart0_sam, CONFIG_UART_SAM_PORT_0_NAME, &uart_sam_init,
-		    // &uart0_sam_data, &uart0_sam_config, PRE_KERNEL_1,
-		    // CONFIG_KERNEL_INIT_PRIORITY_DEVICE, &uart_sam_driver_api);
-// #endif
-
-// /* UART1 */
-
-// #ifdef CONFIG_UART_SAM_PORT_1
-// static const struct uart_sam_dev_cfg uart1_sam_config = {
-	// .regs = UART1,
-	// .periph_id = ID_UART1,
-	// .pin_rx = PIN_UART1_RXD,
-	// .pin_tx = PIN_UART1_TXD,
-// };
-
-// static struct uart_sam_dev_data uart1_sam_data = {
-	// .baud_rate = CONFIG_UART_SAM_PORT_1_BAUD_RATE,
-// };
-
-// DEVICE_AND_API_INIT(uart1_sam, CONFIG_UART_SAM_PORT_1_NAME, &uart_sam_init,
-		    // &uart1_sam_data, &uart1_sam_config, PRE_KERNEL_1,
-		    // CONFIG_KERNEL_INIT_PRIORITY_DEVICE, &uart_sam_driver_api);
-// #endif
-
-// /* UART2 */
-
-// #ifdef CONFIG_UART_SAM_PORT_2
-// static const struct uart_sam_dev_cfg uart2_sam_config = {
-	// .regs = UART2,
-	// .periph_id = ID_UART2,
-	// .pin_rx = PIN_UART2_RXD,
-	// .pin_tx = PIN_UART2_TXD,
-// };
-
-// static struct uart_sam_dev_data uart2_sam_data = {
-	// .baud_rate = CONFIG_UART_SAM_PORT_2_BAUD_RATE,
-// };
-
-// DEVICE_AND_API_INIT(uart2_sam, CONFIG_UART_SAM_PORT_2_NAME, &uart_sam_init,
-		    // &uart2_sam_data, &uart2_sam_config, PRE_KERNEL_1,
-		    // CONFIG_KERNEL_INIT_PRIORITY_DEVICE, &uart_sam_driver_api);
-// #endif
-
-// /* UART3 */
-
-// #ifdef CONFIG_UART_SAM_PORT_3
-// static const struct uart_sam_dev_cfg uart3_sam_config = {
-	// .regs = UART3,
-	// .periph_id = ID_UART3,
-	// .pin_rx = PIN_UART3_RXD,
-	// .pin_tx = PIN_UART3_TXD,
-// };
-
-// static struct uart_sam_dev_data uart3_sam_data = {
-	// .baud_rate = CONFIG_UART_SAM_PORT_3_BAUD_RATE,
-// };
-
-// DEVICE_AND_API_INIT(uart3_sam, CONFIG_UART_SAM_PORT_3_NAME, &uart_sam_init,
-		    // &uart3_sam_data, &uart3_sam_config, PRE_KERNEL_1,
-		    // CONFIG_KERNEL_INIT_PRIORITY_DEVICE, &uart_sam_driver_api);
-// #endif
-
-// /* UART4 */
-
-// #ifdef CONFIG_UART_SAM_PORT_4
-// static const struct uart_sam_dev_cfg uart4_sam_config = {
-	// .regs = UART4,
-	// .periph_id = ID_UART4,
-	// .pin_rx = PIN_UART4_RXD,
-	// .pin_tx = PIN_UART4_TXD,
-// };
-
-// static struct uart_sam_dev_data uart4_sam_data = {
-	// .baud_rate = CONFIG_UART_SAM_PORT_4_BAUD_RATE,
-// };
-
-// DEVICE_AND_API_INIT(uart4_sam, CONFIG_UART_SAM_PORT_4_NAME, &uart_sam_init,
-		    // &uart4_sam_data, &uart4_sam_config, PRE_KERNEL_1,
-		    // CONFIG_KERNEL_INIT_PRIORITY_DEVICE, &uart_sam_driver_api);
-// #endif
