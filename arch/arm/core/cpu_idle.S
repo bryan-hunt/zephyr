@@ -35,6 +35,8 @@ GTEXT(k_cpu_atomic_idle)
 #define _SCB_SCR_SLEEPONEXIT (1 << 1)
 #define _SCR_INIT_BITS _SCB_SCR_SEVONPEND
 
+#define _CoreDebug_DHCSR 0xE000EDF0
+
 /**
  *
  * @brief Initialization of CPU idle
@@ -130,8 +132,18 @@ SECTION_FUNC(TEXT, k_cpu_idle)
 #error Unknown ARM architecture
 #endif /* CONFIG_ARMV6_M */
 
+#ifdef CONFIG_DETECT_DEBUGGER
+	/* Check if the debugger is attached and running */
+	ldr r0, =_CoreDebug_DHCSR
+	ldr r1, [r0]
+	tst r1, #1
+	bne _k_cpu_idle_return
+#endif
+
+	dsb
 	wfi
 
+_k_cpu_idle_return:
 	bx lr
 
 /**
@@ -179,6 +191,7 @@ SECTION_FUNC(TEXT, k_cpu_atomic_idle)
 
 #if defined(CONFIG_ARMV6_M)
 	/* No BASEPRI, call wfe directly (SEVONPEND set in _CpuIdleInit()) */
+	dsb
 	wfe
 
 	cmp r0, #0
@@ -193,6 +206,7 @@ _irq_disabled:
 	/* unlock BASEPRI so wfe gets interrupted by incoming interrupts */
 	msr BASEPRI, r1
 
+	dsb
 	wfe
 
 	msr BASEPRI, r0

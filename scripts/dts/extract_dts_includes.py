@@ -8,6 +8,7 @@ import os
 import re
 import yaml
 import argparse
+import array
 
 from devicetree import parse_file
 
@@ -394,21 +395,22 @@ def extract_pinctrl(node_address, yaml, pinconf, names, index, defs,
         for subnode in reduced.keys():
             if pin_subnode in subnode and pin_node_address != subnode:
                 # found a subnode underneath the pinmux handle
-                pin_label = def_prefix + post_fix + subnode.split('/')[-2:]
-
+                pin_label = def_prefix + post_fix + subnode.split('/')[-1:]
+                
+#                print("pin_node_address",pin_node_address, file=sys.stderr)
+                
                 for i, cells in enumerate(reduced[subnode]['props']):
-                    key_label = list(pin_label) + \
-                        [cell_yaml['#cells'][0]] + [str(i)]
-                    func_label = key_label[:-2] + \
-                        [cell_yaml['#cells'][1]] + [str(i)]
+                    if '@' in pin_subnode:
+                        unit_name = pin_subnode.split('@')[1]
+                        port_label = list(pin_label) + ['port'] + [str(i)]
+                        port_label = convert_string_to_label(
+                            '_'.join(port_label)).upper()
+                        prop_def[port_label] = pin_subnode.split('@')[1]
+                
+                    key_label = list(pin_label) + [cells] + [str(i)]
                     key_label = convert_string_to_label(
                         '_'.join(key_label)).upper()
-                    func_label = convert_string_to_label(
-                        '_'.join(func_label)).upper()
-
-                    prop_def[key_label] = cells
-                    prop_def[func_label] = \
-                        reduced[subnode]['props'][cells]
+                    prop_def[key_label] = reduced[subnode]['props'][cells]
 
     insert_defs(node_address, defs, prop_def, {})
 
@@ -598,6 +600,10 @@ def print_key_value(k, v, tabstop):
     sys.stdout.write(label)
     for i in range(0, tabstop - tabs + 1):
         sys.stdout.write('\t')
+
+    if type(v) is list:
+        v = '{ ' + str(v)[1:-1] + ' }'
+
     sys.stdout.write(str(v))
     sys.stdout.write("\n")
 

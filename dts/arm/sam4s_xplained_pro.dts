@@ -23,6 +23,18 @@
 	status = "ok";
 };
 
+&porta {
+	status = "ok";
+};
+
+&portb {
+	status = "ok";
+};
+
+&portc {
+	status = "ok";
+};
+
 &gpioa {
 	status = "ok";
 };
@@ -32,5 +44,15 @@
 };
 
 &gpioc {
+	status = "ok";
+};
+
+&spi0 {
+	status = "ok";
+};
+
+&i2c0 {
+	pinctrl-0 = <&i2c0_port_a>;
+	pinctrl-names = "default";
 	status = "ok";
 };

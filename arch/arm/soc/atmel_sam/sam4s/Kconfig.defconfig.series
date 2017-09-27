@@ -13,4 +13,39 @@ config SOC_SERIES
 	string
 	default sam4s
 
+if GPIO
+
+config GPIO_SAM
+	def_bool y
+
+endif #GPIO
+	
+if SPI
+
+config SPI_SAM
+	def_bool y
+	
+endif #SPI
+
+if UART
+
+config UART_SAM
+	def_bool y
+
+endif #SPI
+
+if USART
+
+config USART_SAM
+	def_bool y
+
+endif #USART
+
+if I2C
+
+config I2C_SAM_TWI
+	def_bool y
+	
+endif #I2C
+
 endif # SOC_SERIES_SAM4S

@@ -27,7 +27,7 @@
 	#error Library does not support the specified device.
 #endif
 
-#include "soc_pinmap.h"
+#include "pinmux.h"
 
 #include "../common/soc_pmc.h"
 #include "../common/soc_gpio.h"

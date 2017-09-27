@@ -178,4 +178,14 @@ config OPENOCD_SUPPORT
 	  OpenOCD to determine the state of running threads.  (This option
 	  selects CONFIG_THREAD_MONITOR, so all of its caveats are implied.)
 
+config DETECT_DEBUGGER
+	bool
+	prompt "Detect when a debugger is attached and inhibit low power state"
+	default n
+	help
+	This option helps with debugging devices by preventing low power states
+	when a debugger is detected as being attached. Disconnecting the debugger
+	may not always be detected if debugger register is not reset during the
+	disconnect.
+
 endmenu

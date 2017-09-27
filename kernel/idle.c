@@ -29,6 +29,13 @@ s32_t _sys_idle_threshold_ticks = CONFIG_TICKLESS_IDLE_THRESH;
 #define _must_enter_tickless_idle(ticks) ((void)ticks, (0))
 #endif /* CONFIG_TICKLESS_IDLE */
 
+
+#if !CONFIG_SYS_POWER_MANAGEMENT
+u8_t _sys_power_save_flag = 1;
+#else
+u8_t _sys_power_save_flag = 1;	
+#endif
+
 #ifdef CONFIG_SYS_POWER_MANAGEMENT
 /*
  * Used to allow _sys_soc_suspend() implementation to control notification
@@ -165,8 +172,10 @@ void idle(void *unused1, void *unused2, void *unused3)
 #endif
 
 	for (;;) {
-		(void)irq_lock();
-		_sys_power_save_idle(_get_next_timeout_expiry());
+		if(_sys_power_save_flag) {
+			(void)irq_lock();
+			_sys_power_save_idle(_get_next_timeout_expiry());
+		}
 
 		IDLE_YIELD_IF_COOP();
 	}

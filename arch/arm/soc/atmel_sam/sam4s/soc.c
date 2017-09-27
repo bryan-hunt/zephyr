@@ -97,7 +97,10 @@ static ALWAYS_INLINE void clock_init(void)
 	 * keep Processor Clock (HCLK) and thus be able to debug
 	 * CPU using JTAG.
 	 */
-	PMC->PMC_FSMR |= PMC_FSMR_LPM;
+	 PMC->PMC_FSMR &= ~PMC_FSMR_FLPM_Msk;
+	 
+	PMC->PMC_FSMR |= PMC_FSMR_LPM | PMC_FSMR_FLPM_FLASH_IDLE;
+	
 #endif
 #else
 	/* Setup main fast RC oscillator. */

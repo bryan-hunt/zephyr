@@ -1,20 +1,17 @@
 ---
-title: Atmel SAM Family I2C (TWI) node
-id: atmel,sam-i2c-twi
+title: ARM CMSDK GPIO
+id: atmel,sam-gpio
 version: 0.1
 
 description: >
-    This is a representation of the Atmel SAM Family I2C (TWI) node
-
-inherits:
-  - !include i2c.yaml
+    This binding gives a base representation of the Atmel SAM GPIO
 
 properties:
   - compatible:
       type: string
       category: required
       description: compatible strings
-      constraint: "atmel,sam-i2c-twi"
+      constraint: "atmel,sam-gpio"
 
   - reg:
       type: array
@@ -28,9 +25,10 @@ properties:
       description: required interrupts
       generation: define
 
-  - pinctrl-\d+:
-      type: array
-      category: optional
-      description: pinmux information for SDA, SCL
+  - label:
+      type: string
+      category: required
+      description: Human readable string describing the device (used by Zephyr for API name)
       generation: define
+
 ...

@@ -12,7 +12,7 @@
  */
 
 #include <errno.h>
-#include <misc/__assert.h>
+//#include <misc/__assert.h>
 #include <device.h>
 #include <init.h>
 #include <soc.h>
@@ -135,37 +135,47 @@ static const struct uart_driver_api uart_sam_driver_api = {
 	.poll_out = uart_sam_poll_out,
 };
 
-#define UART_SAM_DRIVER_INIT(_id_)														\
-static const struct uart_sam_dev_cfg uart##_id_##_sam_config = {				\
-	.regs = (void*)ATMEL_SAM_UART_##_id_##_BASE_ADDRESS_0,						\
-	.periph_id = ID_UART##_id_,													\
-	.pin_rx = PIN_UART##_id_##_RXD,												\
-	.pin_tx = PIN_UART##_id_##_TXD												\
-};																				\
-static struct uart_sam_dev_data uart##_id_##_sam_data = {						\
-	.baud_rate = ATMEL_SAM_UART_##_id_##_CURRENT_SPEED							\
-};																				\
-DEVICE_AND_API_INIT(uart##_id_##_sam, ATMEL_SAM_UART_##_id_##_LABEL, 			\
-	&uart_sam_init, &uart##_id_##_sam_data, &uart##_id_##_sam_config, 			\
-	PRE_KERNEL_1, CONFIG_KERNEL_INIT_PRIORITY_DEVICE, &uart_sam_driver_api);
+/* Get the DTS defined configuration based on the DTS id */
+#define DTS_CONFIG(_dtsid_, _field_)	ATMEL_SAM_UART_ ## _dtsid_ ## _ ## _field_
 
-#ifdef CONFIG_UART_SAM_PORT_0
-UART_SAM_DRIVER_INIT(0)
+/* Macro Expansion to get the base address of a module given it's DTS id */
+#define DTS_BASE(x) 	DTS_CONFIG(x, BASE_ADDRESS_0)
+
+#define UART_SAM_DRIVER_INIT(_id_, _did_)								\
+DEVICE_DECLARE(uart_sam_##_id_);										\
+static const struct uart_sam_dev_cfg uart_sam_config_##_id_ = {			\
+	.regs = (void*)DTS_BASE(_did_),										\
+	.periph_id = DTS_CONFIG(_did_, IRQ_0),								\
+	.pin_rx = PIN_UART##_id_##_RXD,										\
+	.pin_tx = PIN_UART##_id_##_TXD										\
+};																		\
+static struct uart_sam_dev_data uart_sam_data_##_id_ = {				\
+	.baud_rate = DTS_CONFIG(_did_, CURRENT_SPEED)						\
+};																		\
+DEVICE_AND_API_INIT(uart_sam_##_id_, 									\
+	DTS_CONFIG(_did_, LABEL),											\
+	&uart_sam_init, 													\
+	&uart_sam_data_##_id_, 												\
+	&uart_sam_config_##_id_,											\
+	PRE_KERNEL_1, CONFIG_KERNEL_INIT_PRIORITY_DEVICE,					\
+	&uart_sam_driver_api);
+
+#if DTS_BASE(CONFIG_UART_SAM_0_DTS_ID)
+UART_SAM_DRIVER_INIT(0, CONFIG_UART_SAM_0_DTS_ID))
 #endif
 
-#ifdef CONFIG_UART_SAM_PORT_1
-UART_SAM_DRIVER_INIT(1)
+#if DTS_BASE(CONFIG_UART_SAM_1_DTS_ID)
+UART_SAM_DRIVER_INIT(1, CONFIG_UART_SAM_1_DTS_ID)
 #endif
 
-#ifdef CONFIG_UART_SAM_PORT_2
-UART_SAM_DRIVER_INIT(2)
+#if DTS_BASE(CONFIG_UART_SAM_2_DTS_ID)
+UART_SAM_DRIVER_INIT(2, CONFIG_UART_SAM_2_DTS_ID)
 #endif
 
-#ifdef CONFIG_UART_SAM_PORT_3
-UART_SAM_DRIVER_INIT(3)
+#if DTS_BASE(CONFIG_UART_SAM_3_DTS_ID)
+UART_SAM_DRIVER_INIT(3, CONFIG_UART_SAM_3_DTS_ID)
 #endif
 
-#ifdef CONFIG_UART_SAM_PORT_4
-UART_SAM_DRIVER_INIT(4)
+#if DTS_BASE(CONFIG_UART_SAM_4_DTS_ID)
+UART_SAM_DRIVER_INIT(4, CONFIG_UART_SAM_4_DTS_ID)
 #endif
-

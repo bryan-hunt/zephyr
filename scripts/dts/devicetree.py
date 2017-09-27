@@ -222,6 +222,8 @@ def parse_file(fd, ignore_dts_version=False):
 def dump_refs(name, value, indent=0):
   spaces = '  ' * indent
 
+  print(name, value, file=sys.stderr)
+  
   out = []
   if isinstance(value, dict) and 'ref' in value:
     out.append('%s\"%s\" -> \"%s\";' % (spaces, name, value['ref']))
@@ -290,4 +292,5 @@ def main(args):
   return 0
 
 if __name__ == '__main__':
+  print("Running Devicetree.py", file=sys.stderr)
   sys.exit(main(sys.argv))

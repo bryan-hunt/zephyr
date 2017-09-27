@@ -9,5 +9,9 @@ if BOARD_SAM4S_XPLAINED_PRO
 config BOARD
 	string
 	default sam4s_xplained_pro
+
+config SYS_CLOCK_HW_CYCLES_PER_SEC
+	int
+	default 120000000
 	
 endif # BOARD_SAM4S_XPLAINED_PRO

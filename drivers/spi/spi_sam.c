@@ -44,7 +44,7 @@
  * Support and FAQ: visit <a href="http://www.atmel.com/design-support/">Atmel Support</a>
  */
 
- #define SYS_LOG_LEVEL CONFIG_SYS_LOG_SPI_LEVEL
+#define SYS_LOG_LEVEL 	CONFIG_SYS_LOG_SPI_LEVEL
 #include <logging/sys_log.h>
 
 #include <misc/util.h>
@@ -52,152 +52,116 @@
 #include <board.h>
 #include <errno.h>
 #include <spi.h>
- 
-/** Time-out value (number of attempts). */
-#define SPI_TIMEOUT       15000
+#include <spi_context.h>
 
-/** Status codes used by the SPI driver. */
-typedef enum
-{
-	SPI_ERROR = -1,
-	SPI_OK = 0,
-	SPI_ERROR_TIMEOUT = 1,
-	SPI_ERROR_ARGUMENT,
-	SPI_ERROR_OVERRUN,
-	SPI_ERROR_MODE_FAULT,
-	SPI_ERROR_OVERRUN_AND_MODE_FAULT
-} spi_status_t;
+/* Dummy byte to send when performing reads */
+#define SPI_SAM_DUMMY_BYTE		0xFF
 
-/** SPI Chip Select behavior modes while transferring. */
-typedef enum spi_cs_behavior {
-	/** CS does not rise until a new transfer is requested on different chip select. */
-	SPI_CS_KEEP_LOW = SPI_CSR_CSAAT,
-	/** CS rises if there is no more data to transfer. */
-	SPI_CS_RISE_NO_TX = 0,
-	/** CS is de-asserted systematically during a time DLYBCS. */
-	SPI_CS_RISE_FORCED = SPI_CSR_CSNAAT
-} spi_cs_behavior_t;
+/* Driver Configuration */
+struct spi_sam_config {
+	Spi* 				regs;
+	u32_t				periph_id;
+	void (*irq_config)(void);
+	const struct soc_gpio_pin *pin_list;
+	u8_t pin_list_size;
+};
 
-/**
- * \brief Generate Peripheral Chip Select Value from Chip Select ID
- * \note When chip select n is working, PCS bit n is set to low level.
- *
- * \param chip_sel_id The chip select number used
- */
-#define spi_get_pcs(chip_sel_id) ((~(1u<<(chip_sel_id)))&0xF)
+/* Macro to get config info from SPI API: expects struct spi_config */
+#define DEV_CFG(x)	((const struct spi_sam_config * const)((x)->config->config_info))
+#define SPI_CFG(x)	DEV_CFG(x->dev)
+
+/* Driver Data */
+struct spi_sam_data {
+	struct spi_context ctx;
+};
+
+/* Macro to get driver context from SPI API: expects struct spi_config */
+#define DEV_CTX(x)	&((struct spi_sam_data * const)((x)->driver_data))->ctx
+#define SPI_CTX(x)  DEV_CTX(x->dev)
 
 /* Reset SPI Device and set it to Slave mode. */
-#define SPI_SAM_RESET(p)		p_spi->SPI_CR = SPI_CR_SWRST
+static inline void spi_sam_reset(Spi * p_spi)
+{
+	p_spi->SPI_CR = SPI_CR_SWRST;
+}
 
 /* Enable SPI Device */
-#define SPI_SAM_ENABLE(p)		p->SPI_CR = SPI_CR_SPIEN
+static inline void spi_sam_enable(Spi * p_spi)
+{
+	p_spi->SPI_CR = SPI_CR_SPIEN;
+}
 
 /* Disable SPI Device. CS is de-asserted, which indicates that the last data is done, and user
 should check TX_EMPTY before disabling SPI. */
-#define SPI_SAM_DISABLE(p)		p->SPI_CR = SPI_CR_SPIDIS
-
-/* Issue a LASTXFER command. The next transfer is the last transfer and after that CS is de-asserted. */
-#define SPI_SAM_LAST_XFER(p)	p->SPI_CR = SPI_CR_LASTXFER
-
-/* Set SPI Device to Master */
-#define SPI_SAM_MODE_MASTER(p)	p->SPI_MR |= SPI_MR_MSTR
-
-/* Set SPI Device to Slave mode */
-#define SPI_SAM_MODE_SLAVE(p)	p->SPI_MR &= (~SPI_MR_MSTR)
-
-/* Get SPI mode */
-#define SPI_SAM_MODE(p)			(p->SPI_MR & SPI_MR_MSTR)
-
-/* Read status register */
-#define SPI_SAM_STATUS(p)		p->SPI_SR
-
-/* Write Data */
-#define SPI_SAM_TX(p, d)		p->SPI_TDR = SPI_TDR_TD(d)
-
-/* Read data */
-#define SPI_SAM_RX(p)			(p_spi->SPI_RDR & SPI_RDR_RD_Msk)
-
-/* Check if TX is done */
-#define SPI_SAM_TX_EMPTY(p)		(p->SPI_SR & SPI_SR_TXEMPTY)
-
-/* Check if TX is ready for more */ 
-#define SPI_SAM_TX_READY(p)		(p->SPI_SR & SPI_SR_TDRE)
-
-/* Check if RX is done */
-#define SPI_SAM_RX_FULL(p)		(p_spi->SPI_SR & SPI_SR_RDRF)
-
-/* Check if RX is ready */
-#define SPI_SAM_RX_READY(p)		((p->SPI_SR & (SPI_SR_RDRF | SPI_SR_TXEMPTY)) == (SPI_SR_RDRF | SPI_SR_TXEMPTY))
-
-/**
- * \brief Read the received data and it's peripheral chip select value.
- * While SPI works in fixed peripheral select mode, the peripheral chip select
- * value is meaningless.
- *
- * \param p_spi Pointer to an SPI instance.
- * \param data Pointer to the location where to store the received data word.
- * \param p_pcs Pointer to fill Peripheral Chip Select Value.
- *
- * \retval SPI_OK on Success.
- * \retval SPI_ERROR_TIMEOUT on Time-out.
- */
-static spi_status_t spi_sam_read(Spi *p_spi, uint16_t *us_data, uint8_t *p_pcs)
+static inline void spi_sam_disable(Spi * p_spi)
 {
-	uint32_t timeout = SPI_TIMEOUT;
-	static uint32_t reg_value;
-
-	while (!(p_spi->SPI_SR & SPI_SR_RDRF)) {
-		if (!timeout--) {
-			return SPI_ERROR_TIMEOUT;
-		}
-	}
-
-	reg_value = p_spi->SPI_RDR;
-	if (spi_get_peripheral_select_mode(p_spi)) {
-		*p_pcs = (uint8_t) ((reg_value & SPI_RDR_PCS_Msk) >> SPI_RDR_PCS_Pos);
-	}
-	*us_data = (uint16_t) (reg_value & SPI_RDR_RD_Msk);
-
-	return SPI_OK;
+	p_spi->SPI_CR = SPI_CR_SPIDIS;
 }
 
-/**
- * \brief Write the transmitted data with specified peripheral chip select value.
- *
- * \param p_spi Pointer to an SPI instance.
- * \param us_data The data to transmit.
- * \param uc_pcs Peripheral Chip Select Value while SPI works in peripheral select
- * mode, otherwise it's meaningless.
- * \param uc_last Indicate whether this data is the last one while SPI is working
- * in variable peripheral select mode.
- *
- * \retval SPI_OK on Success.
- * \retval SPI_ERROR_TIMEOUT on Time-out.
- */
-static spi_status_t spi_sam_write(Spi *p_spi, uint16_t us_data,
-		uint8_t uc_pcs, uint8_t uc_last)
+/* Issue a LASTXFER command. The next transfer is the last transfer and after that CS is de-asserted. */
+static inline void spi_sam_last_xfer(Spi * p_spi)
 {
-	uint32_t timeout = SPI_TIMEOUT;
-	uint32_t value;
+	p_spi->SPI_CR = SPI_CR_LASTXFER;
+}
 
-	while (!(p_spi->SPI_SR & SPI_SR_TDRE)) {
-		if (!timeout--) {
-			return SPI_ERROR_TIMEOUT;
-		}
-	}
+/* Set SPI Device to Master */
+static inline void spi_sam_mode_master(Spi * p_spi)
+{
+	p_spi->SPI_MR |= SPI_MR_MSTR;
+}
 
-	if (spi_get_peripheral_select_mode(p_spi)) {
-		value = SPI_TDR_TD(us_data) | SPI_TDR_PCS(uc_pcs);
-		if (uc_last) {
-			value |= SPI_TDR_LASTXFER;
-		}
-	} else {
-		value = SPI_TDR_TD(us_data);
-	}
+/* Set SPI Device to Slave mode */
+static inline void spi_sam_mode_slave(Spi * p_spi)
+{
+	p_spi->SPI_MR &= (~SPI_MR_MSTR);
+}
 
-	p_spi->SPI_TDR = value;
+/* Get SPI mode */
+static inline bool spi_sam_mode(Spi* p_spi)
+{
+	return (SPI_MR_MSTR == (p_spi->SPI_MR & SPI_MR_MSTR));
+}
 
-	return SPI_OK;
+/* Read status register */
+static inline u8_t spi_sam_status(Spi * p_spi)
+{
+	return p_spi->SPI_SR;
+}
+
+/* Send Data */
+static inline void spi_sam_tx(Spi * p_spi, u16_t data)
+{
+	p_spi->SPI_TDR = SPI_TDR_TD(data);
+}
+
+/* Read data */
+static inline u16_t spi_sam_rx(Spi * p_spi)
+{
+	return (p_spi->SPI_RDR & SPI_RDR_RD_Msk);
+}
+
+/* Check if TX is done */
+static inline bool spi_sam_tx_empty(Spi * p_spi)
+{
+	return (SPI_SR_TXEMPTY == (p_spi->SPI_SR & SPI_SR_TXEMPTY));
+}
+
+/* Check if TX is ready for more */
+static inline bool spi_sam_tx_ready(Spi * p_spi)
+{
+	return (SPI_SR_TDRE == (p_spi->SPI_SR & SPI_SR_TDRE));
+}
+
+/* Check if RX is done */
+static inline bool spi_sam_rx_full(Spi * p_spi)
+{
+	return (SPI_SR_RDRF == (p_spi->SPI_SR & SPI_SR_RDRF));
+}
+
+/* Check if RX is ready */
+static inline bool spi_sam_rx_ready(Spi * p_spi)
+{
+	return ((SPI_SR_RDRF | SPI_SR_TXEMPTY) == (p_spi->SPI_SR & (SPI_SR_RDRF | SPI_SR_TXEMPTY)));
 }
 
 /**
@@ -234,27 +198,6 @@ void spi_set_clock_phase(Spi *p_spi, uint32_t ul_pcs_ch, uint32_t ul_phase)
 }
 
 /**
- * \brief Configure CS behavior for SPI transfer (\ref spi_cs_behavior_t).
- *
- * \param p_spi Pointer to an SPI instance.
- * \param ul_pcs_ch Peripheral Chip Select channel (0~3).
- * \param ul_cs_behavior Behavior of the Chip Select after transfer.
- */
-static void spi_configure_cs_behavior(Spi *p_spi, uint32_t ul_pcs_ch,
-		uint32_t ul_cs_behavior)
-{
-	if (ul_cs_behavior == SPI_CS_RISE_FORCED) {
-		p_spi->SPI_CSR[ul_pcs_ch] &= (~SPI_CSR_CSAAT);
-		p_spi->SPI_CSR[ul_pcs_ch] |= SPI_CSR_CSNAAT;
-	} else if (ul_cs_behavior == SPI_CS_RISE_NO_TX) {
-		p_spi->SPI_CSR[ul_pcs_ch] &= (~SPI_CSR_CSAAT);
-		p_spi->SPI_CSR[ul_pcs_ch] &= (~SPI_CSR_CSNAAT);
-	} else if (ul_cs_behavior == SPI_CS_KEEP_LOW) {
-		p_spi->SPI_CSR[ul_pcs_ch] |= SPI_CSR_CSAAT;
-	}
-}
-
-/**
  * \brief Set number of bits per transfer.
  *
  * \param p_spi Pointer to an SPI instance.
@@ -281,7 +224,7 @@ static void spi_set_bits_per_transfer(Spi *p_spi, uint32_t ul_pcs_ch,
  */
 static int16_t spi_calc_baudrate_div(const uint32_t baudrate, uint32_t mck)
 {
-	int baud_div = div_ceil(mck, baudrate);
+	int baud_div = (((mck) + (baudrate) - 1) / (baudrate));
 
 	/* The value of baud_div is from 1 to 255 in the SCBR field. */
 	if (baud_div <= 0 || baud_div > 255) {
@@ -306,8 +249,9 @@ static int16_t spi_set_baudrate_div(Spi *p_spi, uint32_t ul_pcs_ch,
 		uint8_t uc_baudrate_divider)
 {
     /* Programming the SCBR field to 0 is forbidden */
-    if (!uc_baudrate_divider)
+    if (!uc_baudrate_divider) {
         return -1;
+    }
 
 	p_spi->SPI_CSR[ul_pcs_ch] &= (~SPI_CSR_SCBR_Msk);
 	p_spi->SPI_CSR[ul_pcs_ch] |= SPI_CSR_SCBR(uc_baudrate_divider);
@@ -330,331 +274,39 @@ static void spi_set_transfer_delay(Spi *p_spi, uint32_t ul_pcs_ch,
 			| SPI_CSR_DLYBCT(uc_dlybct);
 }
 
-
-/**
- * \brief Enable or disable write protection of SPI registers.
- *
- * \param p_spi Pointer to an SPI instance.
- * \param ul_enable 1 to enable, 0 to disable.
- */
-static void spi_set_writeprotect(Spi *p_spi, uint32_t ul_enable)
+static inline bool spi_sam_is_active(struct spi_context * ctx)
 {
-#if SAM4L
-	if (ul_enable) {
-		p_spi->SPI_WPCR = SPI_WPCR_SPIWPKEY_VALUE | SPI_WPCR_SPIWPEN;
-	} else {
-		p_spi->SPI_WPCR = SPI_WPCR_SPIWPKEY_VALUE;
+	return (spi_context_tx_on(ctx) || spi_context_rx_on(ctx));
+}
+
+static inline u8_t spi_sam_get_tx(struct spi_context * ctx)
+{
+	if(spi_context_tx_on(ctx)) {
+		return *ctx->tx_buf;
 	}
-#else
-	if (ul_enable) {
-		p_spi->SPI_WPMR = SPI_WPMR_WPKEY_PASSWD | SPI_WPMR_WPEN;
-	} else {
-		p_spi->SPI_WPMR = SPI_WPMR_WPKEY_PASSWD;
-	}
-#endif
-}
-
-/**
- * \brief Indicate write protect status.
- *
- * \param p_spi Pointer to an SPI instance.
- *
- * \return SPI_WPSR value.
- */
-static uint32_t spi_get_writeprotect_status(Spi *p_spi)
-{
-	return p_spi->SPI_WPSR;
-}
-
-/* Driver API Structure */
-static const struct spi_driver_api spi_sam_driver_api = {
-	.transceive = spi_sam_transceive,
-#ifdef CONFIG_POLL
-	.transceive_async = spi_sam_transceive_async,
-#endif
-	.release = spi_sam_release,
-};
-
-static int spi_sam_init(struct device *dev)
-{
-	struct spi_stm32_data *data __attribute__((unused)) = dev->driver_data;
-	const struct spi_stm32_config *cfg = dev->config->config_info;
-
-	__ASSERT_NO_MSG(device_get_binding(STM32_CLOCK_CONTROL_NAME));
-
-	clock_control_on(device_get_binding(STM32_CLOCK_CONTROL_NAME),
-			       (clock_control_subsys_t) &cfg->pclken);
-
-#ifdef CONFIG_SPI_SAM_INTERRUPT
-	cfg->irq_config(dev);
-#endif
-
-	spi_context_unlock_unconditionally(&data->ctx);
-
-	return 0;
-}
-
-
-#define SPI_SAM_DRIVER_INIT(_id_)														\
-DEVICE_DECLARE(spi_sam_##_id_);		\
-\
-static void spi_sam_irq_config_##_id_(struct device *dev) {				\
-	IRQ_CONNECT(ATMEL_SAM_SPI_##_id_##_IRQ_0, ATMEL_SAM_SPI_##_id_##_IRQ_0_PRIORITY, 		\
-		spi_sam_isr, DEVICE_GET(spi_sam_##_id_), 0);		\
-	irq_enable(ATMEL_SAM_SPI_##_id_##_IRQ_0);		\
-}				\
-static const struct spi_sam_config spi_sam_cfg_##_id_ = {		\
-	.regs = (void*)ATMEL_SAM_SPI_##_id_##_BASE_ADDRESS_0,		\
-	.periph_id = ATMEL_SAM_SPI_##_id_##_IRQ_0,					\
-	.irq_config = spi_stm32_irq_config_func_##_id_##,			\
-};	\
-	\
-static struct spi_sam_data spi_sam_dev_data_##_id_ = {		\
-	SPI_CONTEXT_INIT_LOCK(spi_stm32_dev_data_##_id_, ctx),	\
-	SPI_CONTEXT_INIT_SYNC(spi_stm32_dev_data_##_id_, ctx),	\
-};	\
-\
-DEVICE_AND_API_INIT(spi_sam_##_id_, ATMEL_SAM_SPI_##_id_##_LABEL, 				\
-			&spi_sam_init, &spi_sam_dev_data_##_id_, &spi_stm32_cfg_##_id_,		\
-		    POST_KERNEL, CONFIG_SPI_INIT_PRIORITY, &spi_sam_driver_api);
-
-#if CONFIG_SPI_0
-SPI_SAM_DRIVER_INIT(0);
-#endif
-
-#if CONFIG_SPI_1
-SPI_SAM_DRIVER_INIT(1);
-#endif
-
-#if CONFIG_SPI_2
-SPI_SAM_DRIVER_INIT(2);
-#endif
-
-#if CONFIG_SPI_3
-SPI_SAM_DRIVER_INIT(3);
-#endif
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-#if 0
-
-
-
-
-/*
- * Copyright (c) 2016 BayLibre, SAS
- *
- * SPDX-License-Identifier: Apache-2.0
- */
-
-#define SYS_LOG_LEVEL CONFIG_SYS_LOG_SPI_LEVEL
-#include <logging/sys_log.h>
-
-#include <misc/util.h>
-#include <kernel.h>
-#include <board.h>
-#include <errno.h>
-#include <spi.h>
-
-#include <clock_control/stm32_clock_control.h>
-#include <clock_control.h>
-
-#include <drivers/spi/spi_ll_stm32.h>
-#include <spi_ll_stm32.h>
-
-#define CONFIG_CFG(cfg)						\
-((const struct spi_stm32_config * const)(cfg)->dev->config->config_info)
-
-#define CONFIG_DATA(cfg)					\
-((struct spi_stm32_data * const)(cfg)->dev->driver_data)
-
-#ifdef LL_SPI_SR_UDR
-#define SPI_STM32_ERR_MSK (LL_SPI_SR_UDR | LL_SPI_SR_CRCERR | LL_SPI_SR_MODF | \
-			   LL_SPI_SR_OVR | LL_SPI_SR_FRE)
-#else
-#define SPI_STM32_ERR_MSK (LL_SPI_SR_CRCERR | LL_SPI_SR_MODF | \
-			   LL_SPI_SR_OVR | LL_SPI_SR_FRE)
-#endif
-
-/* Value to shift out when no application data needs transmitting. */
-#define SPI_STM32_TX_NOP 0x00
-
-static bool spi_stm32_transfer_ongoing(struct spi_stm32_data *data)
-{
-	return spi_context_tx_on(&data->ctx) || spi_context_rx_on(&data->ctx);
-}
-
-static int spi_stm32_get_err(SPI_TypeDef *spi)
-{
-	u32_t sr = LL_SPI_ReadReg(spi, SR);
-
-	return (int)(sr & SPI_STM32_ERR_MSK);
-}
-
-static inline u8_t spi_stm32_next_tx(struct spi_stm32_data *data)
-{
-	return spi_context_tx_on(&data->ctx) ?
-		*data->ctx.tx_buf : SPI_STM32_TX_NOP;
-}
-
-/* Shift a SPI frame as master. */
-static void spi_stm32_shift_m(SPI_TypeDef *spi, struct spi_stm32_data *data)
-{
-	u8_t tx_frame;
-	u8_t rx_frame;
-
-	tx_frame = spi_stm32_next_tx(data);
-	while (!LL_SPI_IsActiveFlag_TXE(spi)) {
-		/* NOP */
-	}
-	LL_SPI_TransmitData8(spi, tx_frame);
-	/* The update is ignored if TX is off. */
-	spi_context_update_tx(&data->ctx, 1);
-
-	while (!LL_SPI_IsActiveFlag_RXNE(spi)) {
-		/* NOP */
-	}
-	rx_frame = LL_SPI_ReceiveData8(spi);
-	if (spi_context_rx_on(&data->ctx)) {
-		*data->ctx.rx_buf = rx_frame;
-		spi_context_update_rx(&data->ctx, 1);
+	else {
+		return SPI_SAM_DUMMY_BYTE;
 	}
 }
 
-/* Shift a SPI frame as slave. */
-static void spi_stm32_shift_s(SPI_TypeDef *spi, struct spi_stm32_data *data)
+static inline void spi_sam_put_rx(struct spi_context *ctx, u8_t rx_data)
 {
-	u8_t tx_frame;
-	u8_t rx_frame;
-
-	tx_frame = spi_stm32_next_tx(data);
-	if (LL_SPI_IsActiveFlag_TXE(spi)) {
-		LL_SPI_TransmitData8(spi, tx_frame);
-		/* The update is ignored if TX is off. */
-		spi_context_update_tx(&data->ctx, 1);
-	}
-
-	if (LL_SPI_IsActiveFlag_RXNE(spi)) {
-		rx_frame = LL_SPI_ReceiveData8(spi);
-		if (spi_context_rx_on(&data->ctx)) {
-			*data->ctx.rx_buf = rx_frame;
-			spi_context_update_rx(&data->ctx, 1);
-		}
+	if (spi_context_rx_on(ctx)) {
+		*ctx->rx_buf = rx_data;
+		spi_context_update_rx(ctx, 1, 1);
 	}
 }
 
-/*
- * Without a FIFO, we can only shift out one frame's worth of SPI
- * data, and read the response back.
- *
- * TODO: support 16-bit data frames.
- */
-static int spi_stm32_shift_frames(SPI_TypeDef *spi, struct spi_stm32_data *data)
+/* Configuration of the peripheral based on  */
+static int spi_sam_configure(struct spi_config *config)
 {
-	u16_t operation = data->ctx.config->operation;
+	Spi * p_spi = SPI_CFG(config)->regs;
+	struct spi_context * ctx = SPI_CTX(config);
 
-	if (SPI_OP_MODE_GET(operation) == SPI_OP_MODE_MASTER) {
-		spi_stm32_shift_m(spi, data);
-	} else {
-		spi_stm32_shift_s(spi, data);
-	}
+	u32_t clk_div;
 
-	return spi_stm32_get_err(spi);
-}
-
-static void spi_stm32_complete(struct spi_stm32_data *data, SPI_TypeDef *spi,
-			       int status)
-{
-#ifdef CONFIG_SPI_STM32_INTERRUPT
-	LL_SPI_DisableIT_TXE(spi);
-	LL_SPI_DisableIT_RXNE(spi);
-	LL_SPI_DisableIT_ERR(spi);
-#endif
-
-	spi_context_cs_control(&data->ctx, false);
-
-#if defined(CONFIG_SOC_SERIES_STM32L4X) || defined(CONFIG_SOC_SERIES_STM32F3X)
-	/* Flush RX buffer */
-	while (LL_SPI_IsActiveFlag_RXNE(spi)) {
-		(void) LL_SPI_ReceiveData8(spi);
-	}
-#endif
-
-	if (LL_SPI_GetMode(spi) == LL_SPI_MODE_MASTER) {
-		while (LL_SPI_IsActiveFlag_BSY(spi)) {
-			/* NOP */
-		}
-	}
-
-	LL_SPI_Disable(spi);
-
-#ifdef CONFIG_SPI_STM32_INTERRUPT
-	spi_context_complete(&data->ctx, status);
-#endif
-}
-
-#ifdef CONFIG_SPI_STM32_INTERRUPT
-static void spi_stm32_isr(void *arg)
-{
-	struct device * const dev = (struct device *) arg;
-	const struct spi_stm32_config *cfg = dev->config->config_info;
-	struct spi_stm32_data *data = dev->driver_data;
-	SPI_TypeDef *spi = cfg->spi;
-	int err;
-
-	err = spi_stm32_get_err(spi);
-	if (err) {
-		spi_stm32_complete(data, spi, err);
-		return;
-	}
-
-	if (spi_stm32_transfer_ongoing(data)) {
-		err = spi_stm32_shift_frames(spi, data);
-	}
-
-	if (err || !spi_stm32_transfer_ongoing(data)) {
-		spi_stm32_complete(data, spi, err);
-	}
-}
-#endif
-
-static int spi_stm32_configure(struct spi_config *config)
-{
-	const struct spi_stm32_config *cfg = CONFIG_CFG(config);
-	struct spi_stm32_data *data = CONFIG_DATA(config);
-	const u32_t scaler[] = {
-		LL_SPI_BAUDRATEPRESCALER_DIV2,
-		LL_SPI_BAUDRATEPRESCALER_DIV4,
-		LL_SPI_BAUDRATEPRESCALER_DIV8,
-		LL_SPI_BAUDRATEPRESCALER_DIV16,
-		LL_SPI_BAUDRATEPRESCALER_DIV32,
-		LL_SPI_BAUDRATEPRESCALER_DIV64,
-		LL_SPI_BAUDRATEPRESCALER_DIV128,
-		LL_SPI_BAUDRATEPRESCALER_DIV256
-	};
-	SPI_TypeDef *spi = cfg->spi;
-	u32_t clock;
-	int br;
-
-	if (spi_context_configured(&data->ctx, config)) {
+	/* Check if the device has already been configured */
+	if (spi_context_configured(ctx, config)) {
 		/* Nothing to do */
 		return 0;
 	}
@@ -663,77 +315,44 @@ static int spi_stm32_configure(struct spi_config *config)
 		return -ENOTSUP;
 	}
 
-	clock_control_get_rate(device_get_binding(STM32_CLOCK_CONTROL_NAME),
-			       (clock_control_subsys_t) &cfg->pclken, &clock);
+	/* Check the request clock rate */
+	clk_div = spi_calc_baudrate_div(config->frequency, SOC_ATMEL_SAM_MCK_FREQ_HZ);
 
-	for (br = 1 ; br <= ARRAY_SIZE(scaler) ; ++br) {
-		u32_t clk = clock >> br;
+	/* Make sure the peripheral clock is enabled first */
+	soc_pmc_peripheral_enable(SPI_CFG(config)->periph_id);
 
-		if (clk < config->frequency) {
-			break;
-		}
-	}
+	/* Disable the Module */
+	spi_sam_disable(p_spi);
 
-	if (br > ARRAY_SIZE(scaler)) {
-		SYS_LOG_ERR("Unsupported frequency %uHz, max %uHz, min %uHz",
-			    config->frequency,
-			    clock >> 1,
-			    clock >> ARRAY_SIZE(scaler));
-		return -EINVAL;
-	}
+	/* Configure the new clock rate */
+	spi_set_baudrate_div(p_spi, 0, clk_div);
 
-	LL_SPI_Disable(spi);
-	LL_SPI_SetBaudRatePrescaler(spi, scaler[br - 1]);
+	/* Configure clock polarity */
+	spi_set_clock_polarity(p_spi, 0, (SPI_MODE_CPOL==SPI_MODE_GET(config->operation)));
 
-	if (SPI_MODE_GET(config->operation) ==  SPI_MODE_CPOL) {
-		LL_SPI_SetClockPolarity(spi, LL_SPI_POLARITY_HIGH);
-	} else {
-		LL_SPI_SetClockPolarity(spi, LL_SPI_POLARITY_LOW);
-	}
+	/* Configure edge sampling */
+	spi_set_clock_phase(p_spi, 0, (SPI_MODE_CPHA == SPI_MODE_GET(config->operation)));
 
-	if (SPI_MODE_GET(config->operation) == SPI_MODE_CPHA) {
-		LL_SPI_SetClockPhase(spi, LL_SPI_PHASE_2EDGE);
-	} else {
-		LL_SPI_SetClockPhase(spi, LL_SPI_PHASE_1EDGE);
-	}
-
-	LL_SPI_SetTransferDirection(spi, LL_SPI_FULL_DUPLEX);
-
+	/* Configure bit transfer direction */
 	if (config->operation & SPI_TRANSFER_LSB) {
-		LL_SPI_SetTransferBitOrder(spi, LL_SPI_LSB_FIRST);
-	} else {
-		LL_SPI_SetTransferBitOrder(spi, LL_SPI_MSB_FIRST);
+		return -ENOTSUP;
 	}
 
-	LL_SPI_DisableCRC(spi);
-
+	/* Set operational mode */
 	if (config->operation & SPI_OP_MODE_SLAVE) {
-		LL_SPI_SetMode(spi, LL_SPI_MODE_SLAVE);
+		spi_sam_mode_slave(p_spi);
 	} else {
-		LL_SPI_SetMode(spi, LL_SPI_MODE_MASTER);
+		spi_sam_mode_master(p_spi);
 	}
 
-	if (config->vendor & STM32_SPI_NSS_IGNORE) {
-		LL_SPI_SetNSSMode(spi, LL_SPI_NSS_SOFT);
-	} else {
-		if (config->operation & SPI_OP_MODE_SLAVE) {
-			LL_SPI_SetNSSMode(spi, LL_SPI_NSS_HARD_INPUT);
-		} else {
-			LL_SPI_SetNSSMode(spi, LL_SPI_NSS_HARD_OUTPUT);
-		}
-	}
-
-	LL_SPI_SetDataWidth(spi, LL_SPI_DATAWIDTH_8BIT);
-
-#if defined(CONFIG_SOC_SERIES_STM32L4X) || defined(CONFIG_SOC_SERIES_STM32F3X)
-	LL_SPI_SetRxFIFOThreshold(spi, LL_SPI_RX_FIFO_TH_QUARTER);
-#endif
-	LL_SPI_SetStandard(spi, LL_SPI_PROTOCOL_MOTOROLA);
+	/* Configure data transfer width */
+	spi_set_bits_per_transfer(p_spi, 0, SPI_WORD_SIZE_GET(config->operation));
 
 	/* At this point, it's mandatory to set this on the context! */
-	data->ctx.config = config;
+	ctx->config = config;
 
-	spi_context_cs_configure(&data->ctx);
+	/* System API chip select configuration */
+	spi_context_cs_configure(ctx);
 
 	SYS_LOG_DBG("Installed config %p: freq %uHz (div = %u),"
 		    " mode %u/%u/%u, slave %u",
@@ -746,61 +365,72 @@ static int spi_stm32_configure(struct spi_config *config)
 	return 0;
 }
 
-static int spi_stm32_release(struct spi_config *config)
+static void spi_sam_shift_frames(Spi *p_spi, struct spi_context *ctx)
 {
-	struct spi_stm32_data *data = CONFIG_DATA(config);
+	if(spi_sam_tx_ready(p_spi))
+	{
+		spi_sam_tx(p_spi, spi_sam_get_tx(ctx));
 
-	spi_context_unlock_unconditionally(&data->ctx);
+		spi_context_update_tx(ctx, 1, 1);
+	}
 
+	if(spi_sam_rx_full(p_spi))
+	{
+		spi_sam_put_rx(ctx, spi_sam_rx(p_spi));
+	}
+}
+
+static void spi_sam_isr(void *arg)
+{
+	Spi *p_spi = DEV_CFG((struct device*)arg)->regs;
+	struct spi_context *ctx = DEV_CTX((struct device*)arg);
+
+	if (spi_sam_is_active(ctx)) {
+		spi_sam_shift_frames(p_spi, ctx);
+	}
+
+	if (!spi_sam_is_active(ctx)) {
+		spi_context_cs_control(ctx, false);
+		spi_context_complete(ctx, true);
+	}
+}
+
+static int spi_sam_release(struct spi_config *config)
+{
+	spi_context_unlock_unconditionally(SPI_CTX(config));
 	return 0;
 }
 
-static int transceive(struct spi_config *config,
+static int spi_sam_transceive_internal(struct spi_config *config,
 		      const struct spi_buf *tx_bufs, u32_t tx_count,
 		      struct spi_buf *rx_bufs, u32_t rx_count,
 		      bool asynchronous, struct k_poll_signal *signal)
 {
-	const struct spi_stm32_config *cfg = CONFIG_CFG(config);
-	struct spi_stm32_data *data = CONFIG_DATA(config);
-	SPI_TypeDef *spi = cfg->spi;
+	Spi *p_spi = SPI_CFG(config)->regs;
+	struct spi_context * ctx = SPI_CTX(config);
 	int ret;
 
 	if (!tx_count && !rx_count) {
 		return 0;
 	}
 
-#ifndef CONFIG_SPI_STM32_INTERRUPT
-	if (asynchronous) {
-		return -ENOTSUP;
-	}
-#endif
+	spi_context_lock(ctx, asynchronous, signal);
 
-	spi_context_lock(&data->ctx, asynchronous, signal);
-
-	ret = spi_stm32_configure(config);
+	ret = spi_sam_configure(config);
 	if (ret) {
 		return ret;
 	}
 
 	/* Set buffers info */
-	spi_context_buffers_setup(&data->ctx, tx_bufs, tx_count,
+	spi_context_buffers_setup(ctx, tx_bufs, tx_count,
 				  rx_bufs, rx_count, 1);
 
-#if defined(CONFIG_SOC_SERIES_STM32L4X) || defined(CONFIG_SOC_SERIES_STM32F3X)
-	/* Flush RX buffer */
-	while (LL_SPI_IsActiveFlag_RXNE(spi)) {
-		(void) LL_SPI_ReceiveData8(spi);
-	}
-#endif
+	spi_sam_enable(p_spi);
 
-	LL_SPI_Enable(spi);
+	/* Assert the chip select */
+	spi_context_cs_control(ctx, true);
 
-	/* This is turned off in spi_stm32_complete(). */
-	spi_context_cs_control(&data->ctx, true);
-
-#ifdef CONFIG_SPI_STM32_INTERRUPT
-	LL_SPI_EnableIT_ERR(spi);
-
+#ifdef CONFIG_SPI_SAM_INTERRUPT
 	if (rx_bufs) {
 		LL_SPI_EnableIT_RXNE(spi);
 	}
@@ -810,13 +440,13 @@ static int transceive(struct spi_config *config,
 	ret = spi_context_wait_for_completion(&data->ctx);
 #else
 	do {
-		ret = spi_stm32_shift_frames(spi, data);
-	} while (!ret && spi_stm32_transfer_ongoing(data));
+		spi_sam_shift_frames(p_spi, ctx);
+	} while (spi_sam_is_active(ctx));
 
-	spi_stm32_complete(data, spi, ret);
+	spi_context_cs_control(ctx, false);
 #endif
 
-	spi_context_release(&data->ctx, ret);
+	spi_context_release(ctx, ret);
 
 	if (ret) {
 		SYS_LOG_ERR("error mask 0x%x", ret);
@@ -825,47 +455,56 @@ static int transceive(struct spi_config *config,
 	return ret ? -EIO : 0;
 }
 
-static int spi_stm32_transceive(struct spi_config *config,
+static int spi_sam_transceive(struct spi_config *config,
 				const struct spi_buf *tx_bufs, u32_t tx_count,
 				struct spi_buf *rx_bufs, u32_t rx_count)
 {
-	return transceive(config, tx_bufs, tx_count,
+	return spi_sam_transceive_internal(config, tx_bufs, tx_count,
 			  rx_bufs, rx_count, false, NULL);
 }
 
-#ifdef CONFIG_POLL
-static int spi_stm32_transceive_async(struct spi_config *config,
-				      const struct spi_buf *tx_bufs,
-				      size_t tx_count,
-				      struct spi_buf *rx_bufs,
-				      size_t rx_count,
-				      struct k_poll_signal *async)
+#if CONFIG_POLL
+
+static int spi_sam_transceive_async(struct spi_config *config,
+				const struct spi_buf *tx_bufs, u32_t tx_count,
+				struct spi_buf *rx_bufs, u32_t rx_count,
+				struct k_poll_signal *async)
 {
-	return transceive(config, tx_bufs, tx_count,
+	return spi_sam_transceive_internal(config, tx_bufs, tx_count,
 			  rx_bufs, rx_count, true, async);
 }
-#endif /* CONFIG_POLL */
-
-static const struct spi_driver_api api_funcs = {
-	.transceive = spi_stm32_transceive,
-#ifdef CONFIG_POLL
-	.transceive_async = spi_stm32_transceive_async,
 #endif
-	.release = spi_stm32_release,
+
+/* Driver API Structure */
+static const struct spi_driver_api spi_sam_driver_api = {
+	.transceive = spi_sam_transceive,
+#if CONFIG_POLL
+	.transceive_async = spi_sam_transceive_async,
+#endif
+	.release = spi_sam_release,
 };
 
-static int spi_stm32_init(struct device *dev)
+static int spi_sam_init(struct device *dev)
 {
-	struct spi_stm32_data *data __attribute__((unused)) = dev->driver_data;
-	const struct spi_stm32_config *cfg = dev->config->config_info;
+	struct spi_sam_data *data;
+	const struct spi_sam_config *cfg;
 
-	__ASSERT_NO_MSG(device_get_binding(STM32_CLOCK_CONTROL_NAME));
+	__ASSERT_NO_MSG(dev);
+	__ASSERT_NO_MSG(dev->config);
 
-	clock_control_on(device_get_binding(STM32_CLOCK_CONTROL_NAME),
-			       (clock_control_subsys_t) &cfg->pclken);
+	data = dev->driver_data;
+	__ASSERT_NO_MSG(data);
+	cfg = dev->config->config_info;
+	__ASSERT_NO_MSG(cfg);
 
-#ifdef CONFIG_SPI_STM32_INTERRUPT
+	soc_pmc_peripheral_enable(cfg->periph_id);
+
+	/* Connect pins to the peripheral */
+	soc_gpio_list_configure(cfg->pin_list, cfg->pin_list_size);
+
+#if CONFIG_SPI_SAM_INTERRUPT
 	cfg->irq_config(dev);
+	irq_enable(cfg->periph_id);
 #endif
 
 	spi_context_unlock_unconditionally(&data->ctx);
@@ -873,118 +512,61 @@ static int spi_stm32_init(struct device *dev)
 	return 0;
 }
 
-#ifdef CONFIG_SPI_1
+/* Get the DTS defined configuration based on the DTS id (which is the base address of the module) */
+#define DTS_CONFIG(_dtsid_, _field_)	ATMEL_SAM_SPI_ ## _dtsid_ ## _ ## _field_
 
-#ifdef CONFIG_SPI_STM32_INTERRUPT
-static void spi_stm32_irq_config_func_1(struct device *port);
+/* Macro Expansion to get the base address of a module given it's DTS id */
+#define DTS_BASE(x) 	DTS_CONFIG(x, BASE_ADDRESS_0)
+
+/* Driver Definition per instance of the device */
+#define SPI_SAM_DEVICE_INIT(_id_, _did_)						\
+DEVICE_DECLARE(spi_sam_##_id_);									\
+static void spi_sam_irq_config_##_id_(void) {					\
+	IRQ_CONNECT(DTS_CONFIG(_did_, IRQ_0),						\
+		DTS_CONFIG(_did_, IRQ_0_PRIORITY), 						\
+		spi_sam_isr, DEVICE_GET(spi_sam_##_id_), 0);			\
+}																\
+static const struct soc_gpio_pin spi_sam_pins_##_id_[] = PINS_SPI##_id_;	\
+static const struct spi_sam_config spi_sam_cfg_##_id_ = {		\
+	.regs = (void*)DTS_BASE(_did_),								\
+	.periph_id = DTS_CONFIG(_did_, IRQ_0),						\
+	.irq_config = spi_sam_irq_config_##_id_,					\
+	.pin_list = spi_sam_pins_##_id_,							\
+	.pin_list_size = ARRAY_SIZE(spi_sam_pins_##_id_)			\
+};																\
+static struct spi_sam_data spi_sam_dev_data_##_id_ = {			\
+	SPI_CONTEXT_INIT_LOCK(spi_sam_dev_data_##_id_, ctx),		\
+	SPI_CONTEXT_INIT_SYNC(spi_sam_dev_data_##_id_, ctx),		\
+};																\
+DEVICE_AND_API_INIT(spi_sam_##_id_, 							\
+	DTS_CONFIG(_did_, LABEL), 									\
+	&spi_sam_init, 												\
+	&spi_sam_dev_data_##_id_, 									\
+	&spi_sam_cfg_##_id_,										\
+	POST_KERNEL, CONFIG_SPI_INIT_PRIORITY,						\
+	&spi_sam_driver_api);
+
+#if DTS_BASE(CONFIG_SPI_SAM_0_DTS_ID)
+SPI_SAM_DEVICE_INIT(0, CONFIG_SPI_SAM_0_DTS_ID);
 #endif
 
-static const struct spi_stm32_config spi_stm32_cfg_1 = {
-	.spi = (SPI_TypeDef *) SPI1_BASE,
-	.pclken = {
-		.enr = LL_APB2_GRP1_PERIPH_SPI1,
-		.bus = STM32_CLOCK_BUS_APB2
-	},
-#ifdef CONFIG_SPI_STM32_INTERRUPT
-	.irq_config = spi_stm32_irq_config_func_1,
-#endif
-};
-
-static struct spi_stm32_data spi_stm32_dev_data_1 = {
-	SPI_CONTEXT_INIT_LOCK(spi_stm32_dev_data_1, ctx),
-	SPI_CONTEXT_INIT_SYNC(spi_stm32_dev_data_1, ctx),
-};
-
-DEVICE_AND_API_INIT(spi_stm32_1, CONFIG_SPI_1_NAME, &spi_stm32_init,
-		    &spi_stm32_dev_data_1, &spi_stm32_cfg_1,
-		    POST_KERNEL, CONFIG_SPI_INIT_PRIORITY,
-		    &api_funcs);
-
-#ifdef CONFIG_SPI_STM32_INTERRUPT
-static void spi_stm32_irq_config_func_1(struct device *dev)
-{
-	IRQ_CONNECT(SPI1_IRQn, CONFIG_SPI_1_IRQ_PRI,
-		    spi_stm32_isr, DEVICE_GET(spi_stm32_1), 0);
-	irq_enable(SPI1_IRQn);
-}
+#if DTS_BASE(CONFIG_SPI_SAM_1_DTS_ID)
+SPI_SAM_DEVICE_INIT(1, CONFIG_SPI_SAM_1_DTS_ID);
 #endif
 
-#endif /* CONFIG_SPI_1 */
-
-#ifdef CONFIG_SPI_2
-
-#ifdef CONFIG_SPI_STM32_INTERRUPT
-static void spi_stm32_irq_config_func_2(struct device *port);
+#if DTS_BASE(CONFIG_SPI_SAM_2_DTS_ID)
+SPI_SAM_DEVICE_INIT(2, CONFIG_SPI_SAM_2_DTS_ID);
 #endif
 
-static const struct spi_stm32_config spi_stm32_cfg_2 = {
-	.spi = (SPI_TypeDef *) SPI2_BASE,
-	.pclken = {
-		.enr = LL_APB1_GRP1_PERIPH_SPI2,
-		.bus = STM32_CLOCK_BUS_APB1
-	},
-#ifdef CONFIG_SPI_STM32_INTERRUPT
-	.irq_config = spi_stm32_irq_config_func_2,
-#endif
-};
-
-static struct spi_stm32_data spi_stm32_dev_data_2 = {
-	SPI_CONTEXT_INIT_LOCK(spi_stm32_dev_data_2, ctx),
-	SPI_CONTEXT_INIT_SYNC(spi_stm32_dev_data_2, ctx),
-};
-
-DEVICE_AND_API_INIT(spi_stm32_2, CONFIG_SPI_2_NAME, &spi_stm32_init,
-		    &spi_stm32_dev_data_2, &spi_stm32_cfg_2,
-		    POST_KERNEL, CONFIG_SPI_INIT_PRIORITY,
-		    &api_funcs);
-
-#ifdef CONFIG_SPI_STM32_INTERRUPT
-static void spi_stm32_irq_config_func_2(struct device *dev)
-{
-	IRQ_CONNECT(SPI2_IRQn, CONFIG_SPI_2_IRQ_PRI,
-		    spi_stm32_isr, DEVICE_GET(spi_stm32_2), 0);
-	irq_enable(SPI2_IRQn);
-}
+#if DTS_BASE(CONFIG_SPI_SAM_3_DTS_ID)
+SPI_SAM_DEVICE_INIT(3, CONFIG_SPI_SAM_3_DTS_ID);
 #endif
 
-#endif /* CONFIG_SPI_2 */
-
-#ifdef CONFIG_SPI_3
-
-#ifdef CONFIG_SPI_STM32_INTERRUPT
-static void spi_stm32_irq_config_func_3(struct device *port);
+#if DTS_BASE(CONFIG_SPI_SAM_4_DTS_ID)
+SPI_SAM_DEVICE_INIT(4, CONFIG_SPI_SAM_4_DTS_ID);
 #endif
 
-static const  struct spi_stm32_config spi_stm32_cfg_3 = {
-	.spi = (SPI_TypeDef *) SPI3_BASE,
-	.pclken = {
-		.enr = LL_APB1_GRP1_PERIPH_SPI3,
-		.bus = STM32_CLOCK_BUS_APB1
-	},
-#ifdef CONFIG_SPI_STM32_INTERRUPT
-	.irq_config = spi_stm32_irq_config_func_3,
-#endif
-};
-
-static struct spi_stm32_data spi_stm32_dev_data_3 = {
-	SPI_CONTEXT_INIT_LOCK(spi_stm32_dev_data_3, ctx),
-	SPI_CONTEXT_INIT_SYNC(spi_stm32_dev_data_3, ctx),
-};
-
-DEVICE_AND_API_INIT(spi_stm32_3, CONFIG_SPI_3_NAME, &spi_stm32_init,
-		    &spi_stm32_dev_data_3, &spi_stm32_cfg_3,
-		    POST_KERNEL, CONFIG_SPI_INIT_PRIORITY,
-		    &api_funcs);
-
-#ifdef CONFIG_SPI_STM32_INTERRUPT
-static void spi_stm32_irq_config_func_3(struct device *dev)
-{
-	IRQ_CONNECT(SPI3_IRQn, CONFIG_SPI_3_IRQ_PRI,
-		    spi_stm32_isr, DEVICE_GET(spi_stm32_3), 0);
-	irq_enable(SPI3_IRQn);
-}
+#if DTS_BASE(CONFIG_SPI_SAM_5_DTS_ID)
+SPI_SAM_DEVICE_INIT(5, CONFIG_SPI_SAM_5_DTS_ID);
 #endif
 
-#endif /* CONFIG_SPI_3 */
-
-#endif
